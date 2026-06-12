@@ -2,7 +2,7 @@
   "expo": {
     "name": "Mis Finanzas",
     "slug": "expo-app",
-    "version": "1.0.0",
+    "version": "0.5",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "expoapp",
@@ -12,6 +12,8 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.juannicolas.misfinanzas",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -44,6 +46,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "334cacde-c144-46f9-98b7-c1c9e4b773b6"
+      }
+    },
+    "owner": "jnm2231"
   }
 }

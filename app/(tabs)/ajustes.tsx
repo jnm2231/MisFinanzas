@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import * as DocumentPicker from 'expo-document-picker';
 import { File, Paths } from 'expo-file-system';
 import { useFocusEffect } from 'expo-router';
@@ -321,6 +322,17 @@ export default function AjustesScreen() {
           </Pressable>
         </View>
 
+        {/* Acerca de */}
+        <View style={[styles.card, { backgroundColor: palette.card, borderColor: palette.border }]}>
+          <Text style={[styles.cardTitle, { color: palette.text }]}>Acerca de</Text>
+          <View style={styles.aboutRow}>
+            <Text style={[styles.aboutLabel, { color: palette.text }]}>Versión</Text>
+            <Text style={[styles.aboutValue, { color: palette.muted }]}>
+              {Constants.expoConfig?.version ?? '0.5'}
+            </Text>
+          </View>
+        </View>
+
         <Text style={[styles.version, { color: palette.muted }]}>
           Mis Finanzas · datos guardados solo en este dispositivo
         </Text>
@@ -431,6 +443,18 @@ const styles = StyleSheet.create({
   dangerText: {
     fontSize: 15,
     fontWeight: '700',
+  },
+  aboutRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  aboutLabel: {
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  aboutValue: {
+    fontSize: 15,
   },
   version: {
     fontSize: 12,

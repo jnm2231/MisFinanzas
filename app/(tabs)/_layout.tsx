@@ -1,8 +1,8 @@
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import React from 'react';
 
 import { HapticTab } from '@/components/haptic-tab';
-import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
@@ -19,15 +19,55 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+          title: 'Agregar',
+          tabBarIcon: ({ color }) => (
+            <MaterialCommunityIcons size={26} name="plus-minus-variant" color={color} />
+          ),
         }}
       />
       <Tabs.Screen
-        name="explore"
+        name="balance"
         options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+          title: 'Balance',
+          tabBarIcon: ({ color }) => (
+            <MaterialCommunityIcons size={26} name="format-list-bulleted" color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="cuentas"
+        options={{
+          title: 'Cuentas',
+          tabBarIcon: ({ color }) => (
+            <MaterialCommunityIcons size={26} name="bank" color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="patrimonio"
+        options={{
+          title: 'Patrimonio',
+          tabBarIcon: ({ color }) => (
+            <MaterialCommunityIcons size={26} name="chart-pie" color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="inversiones"
+        options={{
+          title: 'Inversiones',
+          tabBarIcon: ({ color }) => (
+            <MaterialCommunityIcons size={26} name="chart-line" color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="ajustes"
+        options={{
+          title: 'Ajustes',
+          tabBarIcon: ({ color }) => (
+            <MaterialCommunityIcons size={26} name="cog" color={color} />
+          ),
         }}
       />
     </Tabs>

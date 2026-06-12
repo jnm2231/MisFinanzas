@@ -1,123 +1,300 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useFocusEffect } from 'expo-router';
+import { useSQLiteContext } from 'expo-sqlite';
+import { useCallback, useRef, useState } from 'react';
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+import { Colors } from '@/constants/theme';
+import { type Account, type Category } from '@/db/database';
+import { addTransaction, getBaseAccount, getCategories } from '@/db/queries';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { formatCurrency, parseAmount } from '@/lib/format';
 
-export default function HomeScreen() {
+export default function AgregarScreen() {
+  const db = useSQLiteContext();
+  const palette = Colors[useColorScheme() ?? 'light'];
+  const insets = useSafeAreaInsets();
+
+  const [baseAccount, setBaseAccount] = useState<Account | null>(null);
+  const [expenseCategories, setExpenseCategories] = useState<Category[]>([]);
+  const [incomeCategories, setIncomeCategories] = useState<Category[]>([]);
+
+  const [expenseAmount, setExpenseAmount] = useState('');
+  const [expenseCategoryId, setExpenseCategoryId] = useState<number | null>(null);
+  const [incomeAmount, setIncomeAmount] = useState('');
+  const [incomeCategoryId, setIncomeCategoryId] = useState<number | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const load = useCallback(async () => {
+    setBaseAccount(await getBaseAccount(db));
+    setExpenseCategories(await getCategories(db, 'gasto'));
+    setIncomeCategories(await getCategories(db, 'ingreso'));
+  }, [db]);
+
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
+
+  const showFeedback = (message: string) => {
+    if (feedbackTimer.current) clearTimeout(feedbackTimer.current);
+    setFeedback(message);
+    feedbackTimer.current = setTimeout(() => setFeedback(null), 2500);
+  };
+
+  const handleAdd = async (type: 'gasto' | 'ingreso') => {
+    const amountText = type === 'gasto' ? expenseAmount : incomeAmount;
+    const categoryId = type === 'gasto' ? expenseCategoryId : incomeCategoryId;
+
+    const amount = parseAmount(amountText);
+    if (amount === null) {
+      Alert.alert('Cantidad no válida', 'Introduce una cantidad mayor que 0.');
+      return;
+    }
+    if (categoryId === null) {
+      Alert.alert(
+        type === 'gasto' ? 'Falta la categoría' : 'Falta el tipo de ingreso',
+        'Selecciona una opción de la lista.'
+      );
+      return;
+    }
+
+    const ok = await addTransaction(db, type, amount, categoryId);
+    if (!ok) {
+      Alert.alert('Sin Cuenta Base', 'Configura la Cuenta Base en la pestaña Ajustes.');
+      return;
+    }
+
+    if (type === 'gasto') {
+      setExpenseAmount('');
+    } else {
+      setIncomeAmount('');
+    }
+    showFeedback(
+      type === 'gasto'
+        ? `Gasto de ${formatCurrency(amount)} registrado`
+        : `Ingreso de ${formatCurrency(amount)} registrado`
+    );
+    await load();
+  };
+
+  const renderChips = (
+    categories: Category[],
+    selectedId: number | null,
+    onSelect: (id: number) => void,
+    accentColor: string
+  ) => (
+    <View style={styles.chips}>
+      {categories.map((category) => {
+        const selected = category.id === selectedId;
+        return (
+          <Pressable
+            key={category.id}
+            onPress={() => onSelect(category.id)}
+            style={[
+              styles.chip,
+              { borderColor: palette.border, backgroundColor: palette.background },
+              selected && { backgroundColor: accentColor, borderColor: accentColor },
+            ]}>
+            <Text style={[styles.chipText, { color: selected ? '#fff' : palette.text }]}>
+              {category.name}
+            </Text>
+          </Pressable>
+        );
+      })}
+      {categories.length === 0 && (
+        <Text style={{ color: palette.muted }}>Añade categorías desde Ajustes.</Text>
+      )}
+    </View>
+  );
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.compatContainer}>
-        <ThemedText style={styles.compatTitle}>🛠️ Target Environment Verified</ThemedText>
-        <ThemedText style={styles.compatBody}>• Expo SDK: <ThemedText type="defaultSemiBold">54</ThemedText> (~54.0.34)</ThemedText>
-        <ThemedText style={styles.compatBody}>• Expo Go Client: <ThemedText type="defaultSemiBold">54.0.8</ThemedText></ThemedText>
-        <ThemedText style={styles.compatBody}>• React Native: <ThemedText type="defaultSemiBold">0.81.5</ThemedText></ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-              default: 'cmd + d',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: palette.background }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingTop: insets.top + 16 }]}
+        keyboardShouldPersistTaps="handled">
+        <Text style={[styles.title, { color: palette.text }]}>Agregar</Text>
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+        <View
+          style={[styles.baseBanner, { backgroundColor: palette.card, borderColor: palette.border }]}>
+          <MaterialCommunityIcons name="bank" size={20} color={palette.muted} />
+          {baseAccount ? (
+            <Text style={[styles.baseText, { color: palette.text }]}>
+              Cuenta Base: <Text style={{ fontWeight: '700' }}>{baseAccount.name}</Text>
+              {'  ·  '}
+              {formatCurrency(baseAccount.balance)}
+            </Text>
+          ) : (
+            <Text style={[styles.baseText, { color: palette.danger }]}>
+              Sin Cuenta Base. Configúrala en Ajustes.
+            </Text>
+          )}
+        </View>
+
+        {feedback && (
+          <View style={[styles.feedback, { backgroundColor: palette.success }]}>
+            <MaterialCommunityIcons name="check-circle" size={18} color="#fff" />
+            <Text style={styles.feedbackText}>{feedback}</Text>
+          </View>
+        )}
+
+        {/* ----- Gastos ----- */}
+        <View style={[styles.card, { backgroundColor: palette.card, borderColor: palette.border }]}>
+          <View style={styles.cardHeader}>
+            <MaterialCommunityIcons name="arrow-down-circle" size={22} color={palette.danger} />
+            <Text style={[styles.cardTitle, { color: palette.text }]}>Gasto</Text>
+          </View>
+          <TextInput
+            style={[
+              styles.input,
+              { borderColor: palette.border, color: palette.text, backgroundColor: palette.background },
+            ]}
+            placeholder="0,00 €"
+            placeholderTextColor={palette.muted}
+            keyboardType="decimal-pad"
+            value={expenseAmount}
+            onChangeText={setExpenseAmount}
+          />
+          <Text style={[styles.sectionLabel, { color: palette.muted }]}>Categoría</Text>
+          {renderChips(expenseCategories, expenseCategoryId, setExpenseCategoryId, palette.danger)}
+          <Pressable
+            style={[styles.button, { backgroundColor: palette.danger }]}
+            onPress={() => handleAdd('gasto')}>
+            <Text style={styles.buttonText}>Agregar Gasto</Text>
+          </Pressable>
+        </View>
+
+        {/* ----- Ingresos ----- */}
+        <View style={[styles.card, { backgroundColor: palette.card, borderColor: palette.border }]}>
+          <View style={styles.cardHeader}>
+            <MaterialCommunityIcons name="arrow-up-circle" size={22} color={palette.success} />
+            <Text style={[styles.cardTitle, { color: palette.text }]}>Ingreso</Text>
+          </View>
+          <TextInput
+            style={[
+              styles.input,
+              { borderColor: palette.border, color: palette.text, backgroundColor: palette.background },
+            ]}
+            placeholder="0,00 €"
+            placeholderTextColor={palette.muted}
+            keyboardType="decimal-pad"
+            value={incomeAmount}
+            onChangeText={setIncomeAmount}
+          />
+          <Text style={[styles.sectionLabel, { color: palette.muted }]}>Tipo de ingreso</Text>
+          {renderChips(incomeCategories, incomeCategoryId, setIncomeCategoryId, palette.success)}
+          <Pressable
+            style={[styles.button, { backgroundColor: palette.success }]}
+            onPress={() => handleAdd('ingreso')}>
+            <Text style={styles.buttonText}>Agregar Ingreso</Text>
+          </Pressable>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
+  content: {
+    padding: 16,
+    paddingBottom: 32,
+    gap: 16,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: '700',
+  },
+  baseBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+  },
+  baseText: {
+    fontSize: 14,
+    flex: 1,
+  },
+  feedback: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 10,
+    padding: 10,
+  },
+  feedbackText: {
+    color: '#fff',
+    fontWeight: '600',
+    flex: 1,
+  },
+  card: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 16,
+    gap: 12,
+  },
+  cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  compatContainer: {
-    padding: 16,
-    backgroundColor: '#0366d615',
-    borderRadius: 12,
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  input: {
     borderWidth: 1,
-    borderColor: '#0366d630',
-    marginVertical: 12,
-    gap: 6,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 22,
+    fontWeight: '600',
   },
-  compatTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#0366d6',
-    marginBottom: 4,
+  sectionLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    textTransform: 'uppercase',
   },
-  compatBody: {
-    fontSize: 14,
-  },
-  stepContainer: {
+  chips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
-    marginBottom: 8,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  chip: {
+    borderWidth: 1,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+  chipText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  button: {
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  buttonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });

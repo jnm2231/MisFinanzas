@@ -15,6 +15,8 @@ export const DATABASE_NAME = 'mis-finanzas.db';
  *                    - units + symbol: para calcular el valor actual con la cotización online.
  *                    - current_value: último valor conocido (manual o automático).
  *  settings        Clave/valor. Aquí vive `base_account_id` (la "Cuenta de Banco Base").
+ *  net_worth_snapshots  Foto diaria del patrimonio (efectivo + invertido) para el
+ *                       gráfico de evolución temporal. Una fila por día como máximo.
  */
 export async function initDatabase(db: SQLiteDatabase) {
   await db.execAsync(`
@@ -64,6 +66,13 @@ export async function initDatabase(db: SQLiteDatabase) {
       key TEXT PRIMARY KEY,
       value TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS net_worth_snapshots (
+      date TEXT PRIMARY KEY,
+      cash REAL NOT NULL,
+      invested REAL NOT NULL,
+      total REAL NOT NULL
+    );
   `);
 
   await seedDefaults(db);
@@ -105,6 +114,7 @@ async function seedDefaults(db: SQLiteDatabase) {
 /** Borra todos los datos y vuelve a crear el esquema con los valores por defecto. */
 export async function resetDatabase(db: SQLiteDatabase) {
   await db.execAsync(`
+    DROP TABLE IF EXISTS net_worth_snapshots;
     DROP TABLE IF EXISTS investments;
     DROP TABLE IF EXISTS transactions;
     DROP TABLE IF EXISTS categories;
@@ -144,6 +154,13 @@ export type Transaction = {
   date: string;
   /** Nombre de la categoría (JOIN), null si se borró la categoría. */
   category_name?: string | null;
+};
+
+export type NetWorthSnapshot = {
+  date: string;
+  cash: number;
+  invested: number;
+  total: number;
 };
 
 export type InvestmentType = 'fondo' | 'etf' | 'accion';

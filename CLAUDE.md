@@ -81,8 +81,24 @@ Sigue este orden:
 3. **Paso 3: Desarrollo iterativo.** Ve programando pantalla por pantalla.
 
 -- Una vez terminado el paso 3, parate y avísame para que pueda probar la app con Expo Go, aquí te pediré realizar cambios si son necesarios. Cuando te diga procederemos con el paso 4 --
+**Paso 3.5: 
+Por favor, añade las siguientes funcionalidades y correcciones a las especificaciones que te he dado. Actualiza tu mapa mental del proyecto para integrarlas:
 
+### Añadido para la Pantalla 2: Balance
+- **Desglose visual por Categoría:** Además de las listas de gastos e ingresos, quiero un resumen visual (gráfico de barras horizontales) que me indique qué porcentaje o cantidad de dinero he gastado en cada categoría durante ese periodo seleccionado y los ingresos.
+- **Gastos e ingresos anuales:** Cuando se seleccione el balance anual, debe de mostrase tanto los ingresos como los gastos agrupados por mes, no se deben mostrar todos los gastos unitarios totales.
+- **Gastos diarios y seleccion de intervalo**: Quiero que puedas tambier ver en balance los gastos concretos de un solo día, y además, para hacer la seleccion, de tanto el mes como el día como el año, quiero que se haga con un pop up de un calendario donde se pueda seleccionar el día. El calendario debe tener modo día donde se ve un mes con todos los días del mes, modo mes donde se ve un año con todos los meses del año, y modo año donde se ven todos los años. En el modo día, en cada cuadrado de día debe verse el balance total de ingresos + gastos de ese día, lo mismo para el modo mes y lo mismo para el modo año.
+
+### Añadido para la Pantalla 4: Patrimonio
+- **Gráfico de Evolución Temporal:** Debe haber un gráfico de líneas sencillo que muestre el histórico de cómo ha ido creciendo (o bajando) mi Patrimonio Total a lo largo de los meses y o años.
+
+### Añadidos para la Pantalla 5: Inversiones
+- **Edición Integral de la Inversión:** No quiero tener que borrar una inversión si me equivoco. Debe haber un menú o botón para editar la inversión completa: cambiar su Nombre, modificar el Ticker (símbolo) y cambiar la Plataforma asignada (esto estudiarlo, para que no se pueda hacer que hagan inversiones con una cuenta que no tenga dinero y de error), sin perder el historial de aportaciones.
+- **Manejo Visual de Errores de API (UI):** Si la conexión con la API de cotizaciones falla, NO quiero alertas nativas, pop-ups molestos ni que la pantalla se quede en blanco. Simplemente, en el hueco de la interfaz donde debería ir el porcentaje de rentabilidad, debe aparecer un texto o icono en color amarillo (ej: "Error de conexión" o "API no disponible").
+
+### Añadido para la Pantalla 6: Ajustes (Sistema de Backup)
+- **Importación y Exportación Completa:** Para garantizar que no pierdo mis datos si cambio de móvil, el sistema 100% local requiere un backup bidireccional. Debe permitir exportar la base de datos a un archivo CSV/JSON, y lo más importante: **debe permitir recibir/importar un archivo CSV** para cargar o restaurar toda la base de datos directamente desde ese archivo.
+
+-- Una vez terminado el paso 3.5, parate y avísame para que pueda probar la app con Expo Go, aquí te pediré realizar cambios si son necesarios. Cuando te diga procederemos con el paso 4 --
 4. **Paso 4: Realiza toda la documentación de la apllicación en el readme.md
-4. **Paso 5: Compilación.** Configuración de `eas.json` para sacar el APK.
-
-¿Entendido? Si es así, comienza directamente con el Paso 1 (Esquema de Base de Datos SQLite).
+5. **Paso 5: Compilación.** Configuración de `eas.json` para sacar el APK.

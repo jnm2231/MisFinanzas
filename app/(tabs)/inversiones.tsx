@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -27,7 +27,7 @@ import {
   getAccounts,
   getInvestments,
   refreshQuotes,
-  setInvestmentValue,
+  updateInvestment,
 } from '@/db/queries';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { formatCurrency, formatDateTime, formatPercent, parseAmount } from '@/lib/format';
@@ -52,9 +52,16 @@ export default function InversionesScreen() {
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  // Inversiones cuya última consulta de cotización falló: se señalan en amarillo.
+  const [quoteErrors, setQuoteErrors] = useState<Set<number>>(new Set());
+  const [refreshNote, setRefreshNote] = useState<string | null>(null);
+  const refreshedOnFocus = useRef(false);
 
-  // Modal de edición manual (lápiz)
+  // Modal de edición integral (lápiz)
   const [editTarget, setEditTarget] = useState<Investment | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editSymbol, setEditSymbol] = useState('');
+  const [editPlatformId, setEditPlatformId] = useState<number | null>(null);
   const [editValue, setEditValue] = useState('');
 
   // Modal nueva inversión / aportación
@@ -73,36 +80,47 @@ export default function InversionesScreen() {
     setAccounts(await getAccounts(db));
   }, [db]);
 
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load])
-  );
-
-  const handleRefreshQuotes = async () => {
-    const withSymbol = investments.filter((i) => i.symbol && i.units);
-    if (withSymbol.length === 0) {
-      Alert.alert(
-        'Sin símbolos',
-        'Ninguna inversión tiene símbolo de cotización. Añade el ticker (ej: VWCE.DE) al crear la inversión para actualizar su valor automáticamente.'
-      );
-      return;
-    }
+  const runRefresh = useCallback(async () => {
     setRefreshing(true);
     const result = await refreshQuotes(db);
+    setQuoteErrors(new Set(result.failedIds));
     setRefreshing(false);
     await load();
-    if (result.failed > 0) {
-      Alert.alert(
-        'Actualización parcial',
-        `${result.updated} actualizada(s), ${result.failed} fallida(s). Comprueba los símbolos o tu conexión.`
-      );
+  }, [db, load]);
+
+  useFocusEffect(
+    useCallback(() => {
+      (async () => {
+        await load();
+        // Actualización automática de cotizaciones, una vez por visita a la pestaña.
+        if (!refreshedOnFocus.current) {
+          refreshedOnFocus.current = true;
+          await runRefresh();
+        }
+      })();
+      return () => {
+        refreshedOnFocus.current = false;
+      };
+    }, [load, runRefresh])
+  );
+
+  const handleManualRefresh = async () => {
+    const withSymbol = investments.filter((i) => i.symbol);
+    if (withSymbol.length === 0) {
+      setRefreshNote('No hay inversiones con símbolo de cotización.');
+      setTimeout(() => setRefreshNote(null), 4000);
+      return;
     }
+    setRefreshNote(null);
+    await runRefresh();
   };
 
   const openEditModal = (inv: Investment) => {
     setEditTarget(inv);
-    setEditValue(String(inv.current_value.toFixed(2)).replace('.', ','));
+    setEditName(inv.name);
+    setEditSymbol(inv.symbol ?? '');
+    setEditPlatformId(inv.platform_account_id);
+    setEditValue(inv.current_value.toFixed(2).replace('.', ','));
   };
 
   const handleSaveEdit = async () => {
@@ -112,7 +130,24 @@ export default function InversionesScreen() {
       Alert.alert('Valor no válido', 'Introduce una cantidad mayor que 0.');
       return;
     }
-    await setInvestmentValue(db, editTarget.id, value);
+    if (!editName.trim()) {
+      Alert.alert('Falta el nombre', 'El nombre no puede estar vacío.');
+      return;
+    }
+    if (editPlatformId === null) return;
+
+    setSaving(true);
+    const result = await updateInvestment(db, editTarget.id, {
+      name: editName,
+      symbol: editSymbol.trim() ? editSymbol : null,
+      platformAccountId: editPlatformId,
+      currentValue: value,
+    });
+    setSaving(false);
+    if (!result.ok) {
+      Alert.alert('No se puede guardar', result.reason);
+      return;
+    }
     setEditTarget(null);
     await load();
   };
@@ -165,7 +200,12 @@ export default function InversionesScreen() {
         return;
       }
       setSaving(true);
-      await addContribution(db, formInvestmentId, amount);
+      const result = await addContribution(db, formInvestmentId, amount);
+      setSaving(false);
+      if (!result.ok) {
+        Alert.alert('No se puede aportar', result.reason);
+        return;
+      }
     } else {
       if (!formName.trim()) {
         Alert.alert('Falta el nombre', 'Escribe un nombre para la inversión (ej: S&P 500).');
@@ -180,15 +220,19 @@ export default function InversionesScreen() {
         return;
       }
       setSaving(true);
-      await createInvestment(db, {
+      const result = await createInvestment(db, {
         name: formName,
         type: formType,
         platformAccountId: formPlatformId,
         symbol: formSymbol.trim() ? formSymbol : null,
         amount,
       });
+      setSaving(false);
+      if (!result.ok) {
+        Alert.alert('No se puede crear', result.reason);
+        return;
+      }
     }
-    setSaving(false);
     setFormVisible(false);
     resetForm();
     await load();
@@ -198,6 +242,7 @@ export default function InversionesScreen() {
     const profit = inv.current_value - inv.invested;
     const profitPct = inv.invested > 0 ? (profit / inv.invested) * 100 : 0;
     const profitColor = profit >= 0 ? palette.success : palette.danger;
+    const quoteFailed = inv.symbol !== null && quoteErrors.has(inv.id);
 
     return (
       <Pressable
@@ -219,10 +264,19 @@ export default function InversionesScreen() {
           <Text style={[styles.invValue, { color: palette.text }]}>
             {formatCurrency(inv.current_value)}
           </Text>
-          <Text style={[styles.invProfit, { color: profitColor }]}>
-            {profit >= 0 ? '+' : ''}
-            {formatCurrency(profit)} ({formatPercent(profitPct)})
-          </Text>
+          {quoteFailed ? (
+            <View style={styles.apiErrorRow}>
+              <MaterialCommunityIcons name="alert" size={13} color={palette.warning} />
+              <Text style={[styles.apiErrorText, { color: palette.warning }]}>
+                API no disponible
+              </Text>
+            </View>
+          ) : (
+            <Text style={[styles.invProfit, { color: profitColor }]}>
+              {profit >= 0 ? '+' : ''}
+              {formatCurrency(profit)} ({formatPercent(profitPct)})
+            </Text>
+          )}
         </View>
         <Pressable hitSlop={8} onPress={() => openEditModal(inv)} style={styles.editButton}>
           <MaterialCommunityIcons name="pencil" size={18} color={palette.tint} />
@@ -249,7 +303,7 @@ export default function InversionesScreen() {
           <Text style={[styles.title, { color: palette.text }]}>Inversiones</Text>
           <Pressable
             style={[styles.refreshButton, { borderColor: palette.tint }]}
-            onPress={handleRefreshQuotes}
+            onPress={handleManualRefresh}
             disabled={refreshing}>
             {refreshing ? (
               <ActivityIndicator size="small" color={palette.tint} />
@@ -259,6 +313,23 @@ export default function InversionesScreen() {
             <Text style={[styles.refreshText, { color: palette.tint }]}>Cotizaciones</Text>
           </Pressable>
         </View>
+
+        {refreshNote && (
+          <View style={styles.apiErrorRow}>
+            <MaterialCommunityIcons name="alert" size={15} color={palette.warning} />
+            <Text style={[styles.refreshNote, { color: palette.warning }]}>{refreshNote}</Text>
+          </View>
+        )}
+        {quoteErrors.size > 0 && !refreshing && (
+          <View style={styles.apiErrorRow}>
+            <MaterialCommunityIcons name="wifi-off" size={15} color={palette.warning} />
+            <Text style={[styles.refreshNote, { color: palette.warning }]}>
+              {quoteErrors.size === 1
+                ? 'Una cotización no está disponible. Se muestra el último valor conocido.'
+                : `${quoteErrors.size} cotizaciones no están disponibles. Se muestran los últimos valores conocidos.`}
+            </Text>
+          </View>
+        )}
 
         {TYPE_SECTIONS.map(({ type, label }) => {
           const items = investments.filter((i) => i.type === type);
@@ -285,7 +356,7 @@ export default function InversionesScreen() {
         })}
 
         <Text style={[styles.hint, { color: palette.muted }]}>
-          Mantén pulsada una inversión para venderla o eliminarla.
+          Lápiz: editar nombre, símbolo, plataforma o valor. Pulsación larga: vender o eliminar.
         </Text>
 
         <Pressable
@@ -299,42 +370,94 @@ export default function InversionesScreen() {
         </Pressable>
       </ScrollView>
 
-      {/* Modal edición manual */}
+      {/* Modal edición integral */}
       <Modal
         visible={editTarget !== null}
         transparent
         animationType="fade"
         onRequestClose={() => setEditTarget(null)}>
-        <View style={styles.backdrop}>
-          <View
-            style={[styles.modalCard, { backgroundColor: palette.background, borderColor: palette.border }]}>
-            <Text style={[styles.modalTitle, { color: palette.text }]}>
-              Ajustar valor de {editTarget?.name}
-            </Text>
-            <Text style={[styles.fieldLabel, { color: palette.muted }]}>Valor actual</Text>
-            <TextInput
-              style={[
-                styles.input,
-                { borderColor: palette.border, color: palette.text, backgroundColor: palette.card },
-              ]}
-              keyboardType="decimal-pad"
-              value={editValue}
-              onChangeText={setEditValue}
-            />
-            <View style={styles.modalActions}>
-              <Pressable
-                style={[styles.button, styles.modalButton, { backgroundColor: palette.card }]}
-                onPress={() => setEditTarget(null)}>
-                <Text style={[styles.buttonText, { color: palette.text }]}>Cancelar</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.button, styles.modalButton, { backgroundColor: palette.tint }]}
-                onPress={handleSaveEdit}>
-                <Text style={[styles.buttonText, { color: palette.background }]}>Guardar</Text>
-              </Pressable>
+        <KeyboardAvoidingView
+          style={styles.backdrop}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <ScrollView
+            contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }}
+            keyboardShouldPersistTaps="handled">
+            <View
+              style={[styles.modalCard, { backgroundColor: palette.background, borderColor: palette.border }]}>
+              <Text style={[styles.modalTitle, { color: palette.text }]}>Editar inversión</Text>
+
+              <Text style={[styles.fieldLabel, { color: palette.muted }]}>Nombre</Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  { borderColor: palette.border, color: palette.text, backgroundColor: palette.card },
+                ]}
+                value={editName}
+                onChangeText={setEditName}
+              />
+
+              <Text style={[styles.fieldLabel, { color: palette.muted }]}>
+                Símbolo / ticker (vacío = valor manual)
+              </Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  { borderColor: palette.border, color: palette.text, backgroundColor: palette.card },
+                ]}
+                placeholder="Ej: VWCE.DE"
+                placeholderTextColor={palette.muted}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                value={editSymbol}
+                onChangeText={setEditSymbol}
+              />
+
+              <Text style={[styles.fieldLabel, { color: palette.muted }]}>Plataforma</Text>
+              <SelectModal
+                placeholder="Cuenta plataforma"
+                options={accountOptions}
+                selectedId={editPlatformId}
+                onSelect={(id) => setEditPlatformId(Number(id))}
+              />
+              {editTarget && editPlatformId !== editTarget.platform_account_id && (
+                <Text style={[styles.symbolHint, { color: palette.warning }]}>
+                  Al cambiar la plataforma, el capital aportado (
+                  {formatCurrency(editTarget.invested)}) se devolverá a la cuenta antigua y se
+                  descontará de la nueva, que debe tener saldo suficiente.
+                </Text>
+              )}
+
+              <Text style={[styles.fieldLabel, { color: palette.muted }]}>Valor actual</Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  { borderColor: palette.border, color: palette.text, backgroundColor: palette.card },
+                ]}
+                keyboardType="decimal-pad"
+                value={editValue}
+                onChangeText={setEditValue}
+              />
+
+              <View style={styles.modalActions}>
+                <Pressable
+                  style={[styles.button, styles.modalButton, { backgroundColor: palette.card }]}
+                  onPress={() => setEditTarget(null)}>
+                  <Text style={[styles.buttonText, { color: palette.text }]}>Cancelar</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.button, styles.modalButton, { backgroundColor: palette.tint }]}
+                  onPress={handleSaveEdit}
+                  disabled={saving}>
+                  {saving ? (
+                    <ActivityIndicator size="small" color={palette.background} />
+                  ) : (
+                    <Text style={[styles.buttonText, { color: palette.background }]}>Guardar</Text>
+                  )}
+                </Pressable>
+              </View>
             </View>
-          </View>
-        </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Modal nueva inversión / aportación */}
@@ -512,6 +635,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
+  refreshNote: {
+    fontSize: 13,
+    fontWeight: '600',
+    flex: 1,
+  },
   card: {
     borderWidth: 1,
     borderRadius: 14,
@@ -554,6 +682,15 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   invProfit: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  apiErrorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  apiErrorText: {
     fontSize: 12,
     fontWeight: '600',
   },

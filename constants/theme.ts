@@ -21,6 +21,7 @@ export const Colors = {
     muted: '#687076',
     success: '#1B873F',
     danger: '#CF222E',
+    warning: '#B08800',
   },
   dark: {
     text: '#ECEDEE',
@@ -34,6 +35,7 @@ export const Colors = {
     muted: '#9BA1A6',
     success: '#3FB950',
     danger: '#F85149',
+    warning: '#D29922',
   },
 };
 

@@ -5,13 +5,34 @@ import { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { CategoryBars } from '@/components/category-bars';
+import { PeriodCalendar, type CalendarLevel } from '@/components/period-calendar';
 import { Colors } from '@/constants/theme';
 import { type Transaction } from '@/db/database';
-import { deleteTransaction, getTransactionsForPeriod } from '@/db/queries';
+import {
+  deleteTransaction,
+  getCategoryTotals,
+  getMonthlyTotals,
+  getTransactionsForPeriod,
+  type CategoryTotal,
+  type MonthlyTotal,
+} from '@/db/queries';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { formatCurrency, formatMonthYear, formatShortDate } from '@/lib/format';
+import {
+  formatCurrency,
+  formatFullDate,
+  formatMonthYear,
+  formatShortDate,
+  monthName,
+} from '@/lib/format';
 
-type Mode = 'mensual' | 'anual';
+type Mode = CalendarLevel; // 'dia' | 'mensual' | 'anual'
+
+const MODE_LABELS: { mode: Mode; label: string }[] = [
+  { mode: 'dia', label: 'Día' },
+  { mode: 'mensual', label: 'Mensual' },
+  { mode: 'anual', label: 'Anual' },
+];
 
 export default function BalanceScreen() {
   const db = useSQLiteContext();
@@ -22,16 +43,28 @@ export default function BalanceScreen() {
   const [mode, setMode] = useState<Mode>('mensual');
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
+  const [day, setDay] = useState(today.getDate());
+  const [calendarVisible, setCalendarVisible] = useState(false);
+
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [monthlyTotals, setMonthlyTotals] = useState<MonthlyTotal[]>([]);
+  const [expenseByCategory, setExpenseByCategory] = useState<CategoryTotal[]>([]);
+  const [incomeByCategory, setIncomeByCategory] = useState<CategoryTotal[]>([]);
 
   const load = useCallback(async () => {
-    const rows = await getTransactionsForPeriod(
-      db,
-      year,
-      mode === 'mensual' ? month : undefined
-    );
-    setTransactions(rows);
-  }, [db, year, month, mode]);
+    const m = mode === 'anual' ? undefined : month;
+    const d = mode === 'dia' ? day : undefined;
+
+    if (mode === 'anual') {
+      setMonthlyTotals(await getMonthlyTotals(db, year));
+      setTransactions([]);
+    } else {
+      setTransactions(await getTransactionsForPeriod(db, year, m, d));
+      setMonthlyTotals([]);
+    }
+    setExpenseByCategory(await getCategoryTotals(db, 'gasto', year, m, d));
+    setIncomeByCategory(await getCategoryTotals(db, 'ingreso', year, m, d));
+  }, [db, mode, year, month, day]);
 
   useFocusEffect(
     useCallback(() => {
@@ -42,22 +75,36 @@ export default function BalanceScreen() {
   const movePeriod = (direction: -1 | 1) => {
     if (mode === 'anual') {
       setYear((y) => y + direction);
-      return;
+    } else if (mode === 'mensual') {
+      let newMonth = month + direction;
+      let newYear = year;
+      if (newMonth === 0) {
+        newMonth = 12;
+        newYear--;
+      } else if (newMonth === 13) {
+        newMonth = 1;
+        newYear++;
+      }
+      setMonth(newMonth);
+      setYear(newYear);
+    } else {
+      const date = new Date(year, month - 1, day);
+      date.setDate(date.getDate() + direction);
+      setYear(date.getFullYear());
+      setMonth(date.getMonth() + 1);
+      setDay(date.getDate());
     }
-    let newMonth = month + direction;
-    let newYear = year;
-    if (newMonth === 0) {
-      newMonth = 12;
-      newYear--;
-    } else if (newMonth === 13) {
-      newMonth = 1;
-      newYear++;
-    }
-    setMonth(newMonth);
-    setYear(newYear);
   };
 
   const { incomes, expenses, totalIncome, totalExpense } = useMemo(() => {
+    if (mode === 'anual') {
+      return {
+        incomes: [],
+        expenses: [],
+        totalIncome: monthlyTotals.reduce((sum, m) => sum + m.income, 0),
+        totalExpense: monthlyTotals.reduce((sum, m) => sum + m.expense, 0),
+      };
+    }
     const incomes = transactions.filter((t) => t.type === 'ingreso');
     const expenses = transactions.filter((t) => t.type === 'gasto');
     return {
@@ -66,9 +113,16 @@ export default function BalanceScreen() {
       totalIncome: incomes.reduce((sum, t) => sum + t.amount, 0),
       totalExpense: expenses.reduce((sum, t) => sum + t.amount, 0),
     };
-  }, [transactions]);
+  }, [mode, transactions, monthlyTotals]);
 
   const balance = totalIncome - totalExpense;
+
+  const periodLabel =
+    mode === 'dia'
+      ? formatFullDate(year, month, day)
+      : mode === 'mensual'
+        ? formatMonthYear(year, month)
+        : String(year);
 
   const confirmDelete = (tx: Transaction) => {
     Alert.alert(
@@ -94,7 +148,9 @@ export default function BalanceScreen() {
         <Text style={[styles.rowCategory, { color: palette.text }]}>
           {tx.category_name ?? 'Sin categoría'}
         </Text>
-        <Text style={[styles.rowDate, { color: palette.muted }]}>{formatShortDate(tx.date)}</Text>
+        <Text style={[styles.rowDate, { color: palette.muted }]}>
+          {mode === 'dia' ? tx.date.slice(11, 16) : formatShortDate(tx.date)}
+        </Text>
       </View>
       <Text
         style={[
@@ -110,92 +166,153 @@ export default function BalanceScreen() {
     </View>
   );
 
-  return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: palette.background }}
-      contentContainerStyle={[styles.content, { paddingTop: insets.top + 16 }]}>
-      <Text style={[styles.title, { color: palette.text }]}>Balance</Text>
-
-      {/* Selector Mensual / Anual */}
-      <View style={[styles.segment, { backgroundColor: palette.card, borderColor: palette.border }]}>
-        {(['mensual', 'anual'] as Mode[]).map((m) => (
-          <Pressable
-            key={m}
-            style={[styles.segmentItem, mode === m && { backgroundColor: palette.tint }]}
-            onPress={() => setMode(m)}>
-            <Text
-              style={[
-                styles.segmentText,
-                { color: mode === m ? palette.background : palette.text },
-              ]}>
-              {m === 'mensual' ? 'Mensual' : 'Anual'}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-
-      {/* Navegación de periodo */}
-      <View style={styles.periodNav}>
-        <Pressable hitSlop={8} onPress={() => movePeriod(-1)}>
-          <MaterialCommunityIcons name="chevron-left" size={28} color={palette.text} />
-        </Pressable>
-        <Text style={[styles.periodLabel, { color: palette.text }]}>
-          {mode === 'mensual' ? formatMonthYear(year, month) : String(year)}
+  const renderMonthRow = (item: MonthlyTotal) => {
+    const net = item.income - item.expense;
+    return (
+      <View key={item.month} style={[styles.row, { borderBottomColor: palette.border }]}>
+        <Text style={[styles.rowCategory, { color: palette.text, flex: 1, textTransform: 'capitalize' }]}>
+          {monthName(item.month)}
         </Text>
-        <Pressable hitSlop={8} onPress={() => movePeriod(1)}>
-          <MaterialCommunityIcons name="chevron-right" size={28} color={palette.text} />
-        </Pressable>
-      </View>
-
-      {/* Resumen */}
-      <View style={[styles.summary, { backgroundColor: palette.card, borderColor: palette.border }]}>
-        <View style={styles.summaryItem}>
-          <Text style={[styles.summaryLabel, { color: palette.muted }]}>Ingresos</Text>
-          <Text style={[styles.summaryValue, { color: palette.success }]}>
-            {formatCurrency(totalIncome)}
-          </Text>
-        </View>
-        <View style={styles.summaryItem}>
-          <Text style={[styles.summaryLabel, { color: palette.muted }]}>Gastos</Text>
-          <Text style={[styles.summaryValue, { color: palette.danger }]}>
-            {formatCurrency(totalExpense)}
-          </Text>
-        </View>
-        <View style={styles.summaryItem}>
-          <Text style={[styles.summaryLabel, { color: palette.muted }]}>Balance</Text>
+        <View style={{ alignItems: 'flex-end' }}>
+          <View style={styles.monthAmounts}>
+            <Text style={[styles.monthAmount, { color: palette.success }]}>
+              +{formatCurrency(item.income)}
+            </Text>
+            <Text style={[styles.monthAmount, { color: palette.danger }]}>
+              -{formatCurrency(item.expense)}
+            </Text>
+          </View>
           <Text
             style={[
-              styles.summaryValue,
-              { color: balance >= 0 ? palette.success : palette.danger },
+              styles.rowAmount,
+              { color: net >= 0 ? palette.success : palette.danger },
             ]}>
-            {formatCurrency(balance)}
+            = {formatCurrency(net)}
           </Text>
         </View>
       </View>
+    );
+  };
 
-      {/* Listados */}
-      <View style={[styles.listCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
-        <Text style={[styles.listTitle, { color: palette.success }]}>Ingresos</Text>
-        {incomes.length === 0 ? (
-          <Text style={[styles.emptyText, { color: palette.muted }]}>
-            Sin ingresos en este periodo
-          </Text>
-        ) : (
-          incomes.map(renderRow)
-        )}
-      </View>
+  return (
+    <View style={{ flex: 1, backgroundColor: palette.background }}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 16 }]}>
+        <Text style={[styles.title, { color: palette.text }]}>Balance</Text>
 
-      <View style={[styles.listCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
-        <Text style={[styles.listTitle, { color: palette.danger }]}>Gastos</Text>
-        {expenses.length === 0 ? (
-          <Text style={[styles.emptyText, { color: palette.muted }]}>
-            Sin gastos en este periodo
-          </Text>
+        {/* Selector Día / Mensual / Anual */}
+        <View style={[styles.segment, { backgroundColor: palette.card, borderColor: palette.border }]}>
+          {MODE_LABELS.map(({ mode: m, label }) => (
+            <Pressable
+              key={m}
+              style={[styles.segmentItem, mode === m && { backgroundColor: palette.tint }]}
+              onPress={() => setMode(m)}>
+              <Text
+                style={[
+                  styles.segmentText,
+                  { color: mode === m ? palette.background : palette.text },
+                ]}>
+                {label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        {/* Navegación de periodo: flechas + etiqueta que abre el calendario */}
+        <View style={styles.periodNav}>
+          <Pressable hitSlop={8} onPress={() => movePeriod(-1)}>
+            <MaterialCommunityIcons name="chevron-left" size={28} color={palette.text} />
+          </Pressable>
+          <Pressable style={styles.periodButton} onPress={() => setCalendarVisible(true)}>
+            <MaterialCommunityIcons name="calendar-month" size={18} color={palette.tint} />
+            <Text style={[styles.periodLabel, { color: palette.text }]}>{periodLabel}</Text>
+          </Pressable>
+          <Pressable hitSlop={8} onPress={() => movePeriod(1)}>
+            <MaterialCommunityIcons name="chevron-right" size={28} color={palette.text} />
+          </Pressable>
+        </View>
+
+        {/* Resumen */}
+        <View style={[styles.summary, { backgroundColor: palette.card, borderColor: palette.border }]}>
+          <View style={styles.summaryItem}>
+            <Text style={[styles.summaryLabel, { color: palette.muted }]}>Ingresos</Text>
+            <Text style={[styles.summaryValue, { color: palette.success }]}>
+              {formatCurrency(totalIncome)}
+            </Text>
+          </View>
+          <View style={styles.summaryItem}>
+            <Text style={[styles.summaryLabel, { color: palette.muted }]}>Gastos</Text>
+            <Text style={[styles.summaryValue, { color: palette.danger }]}>
+              {formatCurrency(totalExpense)}
+            </Text>
+          </View>
+          <View style={styles.summaryItem}>
+            <Text style={[styles.summaryLabel, { color: palette.muted }]}>Balance</Text>
+            <Text
+              style={[
+                styles.summaryValue,
+                { color: balance >= 0 ? palette.success : palette.danger },
+              ]}>
+              {formatCurrency(balance)}
+            </Text>
+          </View>
+        </View>
+
+        {/* Desglose visual por categoría */}
+        <CategoryBars title="Gastos por categoría" items={expenseByCategory} barColor={palette.danger} />
+        <CategoryBars title="Ingresos por categoría" items={incomeByCategory} barColor={palette.success} />
+
+        {/* Listados */}
+        {mode === 'anual' ? (
+          <View style={[styles.listCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
+            <Text style={[styles.listTitle, { color: palette.text }]}>Resumen por mes</Text>
+            {monthlyTotals.length === 0 ? (
+              <Text style={[styles.emptyText, { color: palette.muted }]}>
+                Sin movimientos en este año
+              </Text>
+            ) : (
+              monthlyTotals.map(renderMonthRow)
+            )}
+          </View>
         ) : (
-          expenses.map(renderRow)
+          <>
+            <View style={[styles.listCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
+              <Text style={[styles.listTitle, { color: palette.success }]}>Ingresos</Text>
+              {incomes.length === 0 ? (
+                <Text style={[styles.emptyText, { color: palette.muted }]}>
+                  Sin ingresos en este periodo
+                </Text>
+              ) : (
+                incomes.map(renderRow)
+              )}
+            </View>
+
+            <View style={[styles.listCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
+              <Text style={[styles.listTitle, { color: palette.danger }]}>Gastos</Text>
+              {expenses.length === 0 ? (
+                <Text style={[styles.emptyText, { color: palette.muted }]}>
+                  Sin gastos en este periodo
+                </Text>
+              ) : (
+                expenses.map(renderRow)
+              )}
+            </View>
+          </>
         )}
-      </View>
-    </ScrollView>
+      </ScrollView>
+
+      <PeriodCalendar
+        visible={calendarVisible}
+        level={mode}
+        initial={{ year, month, day }}
+        onClose={() => setCalendarVisible(false)}
+        onSelect={(selection) => {
+          setYear(selection.year);
+          if (selection.month !== undefined) setMonth(selection.month);
+          if (selection.day !== undefined) setDay(selection.day);
+          setCalendarVisible(false);
+        }}
+      />
+    </View>
   );
 }
 
@@ -231,8 +348,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  periodButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
   periodLabel: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
     textTransform: 'capitalize',
   },
@@ -285,6 +409,14 @@ const styles = StyleSheet.create({
   rowAmount: {
     fontSize: 15,
     fontWeight: '700',
+  },
+  monthAmounts: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  monthAmount: {
+    fontSize: 13,
+    fontWeight: '600',
   },
   emptyText: {
     fontSize: 14,

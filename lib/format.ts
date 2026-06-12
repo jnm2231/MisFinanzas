@@ -48,6 +48,28 @@ export function formatShortDate(isoDate: string): string {
   return `${day} ${MONTHS_ES[month - 1].slice(0, 3)}`;
 }
 
+/** Balance neto compacto para celdas pequeñas del calendario: "+850", "-1,2k". */
+export function formatCompactNet(value: number): string {
+  const sign = value > 0 ? '+' : value < 0 ? '-' : '';
+  const abs = Math.abs(value);
+  if (abs >= 10000) return `${sign}${Math.round(abs / 1000)}k`;
+  if (abs >= 1000) return `${sign}${(abs / 1000).toFixed(1).replace('.', ',')}k`;
+  return `${sign}${Math.round(abs)}`;
+}
+
+/** "11 de junio de 2026" */
+export function formatFullDate(year: number, month: number, day: number): string {
+  return `${day} de ${MONTHS_ES[month - 1]} de ${year}`;
+}
+
+export function monthShortName(month: number): string {
+  return MONTHS_ES[month - 1].slice(0, 3);
+}
+
+export function monthName(month: number): string {
+  return MONTHS_ES[month - 1];
+}
+
 /** "2026-06-11T18:30:00" -> "11/06/2026 18:30" */
 export function formatDateTime(isoDate: string): string {
   const [datePart, timePart] = isoDate.split('T');

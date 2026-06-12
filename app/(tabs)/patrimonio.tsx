@@ -4,12 +4,18 @@ import { useCallback, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { LineChart, type LinePoint } from '@/components/line-chart';
 import { PieChart, type PieSlice } from '@/components/pie-chart';
 import { Colors } from '@/constants/theme';
-import { type Account, type Investment } from '@/db/database';
-import { getAccounts, getInvestments } from '@/db/queries';
+import { type Account, type Investment, type NetWorthSnapshot } from '@/db/database';
+import {
+  getAccounts,
+  getInvestments,
+  getNetWorthSnapshots,
+  recordNetWorthSnapshot,
+} from '@/db/queries';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { formatCurrency } from '@/lib/format';
+import { formatCurrency, monthShortName } from '@/lib/format';
 
 const SLICE_COLORS = [
   '#4C9AFF', '#36B37E', '#FFAB00', '#FF5630', '#6554C0',
@@ -29,10 +35,14 @@ export default function PatrimonioScreen() {
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [investments, setInvestments] = useState<Investment[]>([]);
+  const [snapshots, setSnapshots] = useState<NetWorthSnapshot[]>([]);
 
   const load = useCallback(async () => {
+    // Cada visita registra la foto del día para ir construyendo el histórico.
+    await recordNetWorthSnapshot(db);
     setAccounts(await getAccounts(db));
     setInvestments(await getInvestments(db));
+    setSnapshots(await getNetWorthSnapshots(db));
   }, [db]);
 
   useFocusEffect(
@@ -67,6 +77,29 @@ export default function PatrimonioScreen() {
 
   const total = cashTotal + investedTotal;
 
+  /**
+   * Puntos del gráfico de evolución: si el histórico abarca varios meses se
+   * agrupa por mes (último valor de cada mes); si no, se muestra día a día.
+   */
+  const evolutionPoints = useMemo<LinePoint[]>(() => {
+    if (snapshots.length === 0) return [];
+    const firstMonth = snapshots[0].date.slice(0, 7);
+    const lastMonth = snapshots[snapshots.length - 1].date.slice(0, 7);
+
+    if (firstMonth === lastMonth) {
+      return snapshots.map((s) => ({
+        label: `${Number(s.date.slice(8, 10))}/${Number(s.date.slice(5, 7))}`,
+        value: s.total,
+      }));
+    }
+    const lastPerMonth = new Map<string, NetWorthSnapshot>();
+    for (const s of snapshots) lastPerMonth.set(s.date.slice(0, 7), s);
+    return [...lastPerMonth.values()].map((s) => ({
+      label: `${monthShortName(Number(s.date.slice(5, 7)))} ${s.date.slice(2, 4)}`,
+      value: s.total,
+    }));
+  }, [snapshots]);
+
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: palette.background }}
@@ -80,6 +113,14 @@ export default function PatrimonioScreen() {
       <View style={styles.totalBlock}>
         <Text style={[styles.totalLabel, { color: palette.muted }]}>Patrimonio Total</Text>
         <Text style={[styles.totalValue, { color: palette.text }]}>{formatCurrency(total)}</Text>
+      </View>
+
+      {/* Evolución temporal */}
+      <View style={[styles.card, { backgroundColor: palette.card, borderColor: palette.border }]}>
+        <Text style={[styles.breakdownLabel, { color: palette.text }]}>
+          📊 Evolución del Patrimonio
+        </Text>
+        <LineChart points={evolutionPoints} />
       </View>
 
       <View style={[styles.card, { backgroundColor: palette.card, borderColor: palette.border }]}>

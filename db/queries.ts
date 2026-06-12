@@ -9,8 +9,19 @@ import {
   type CategoryType,
   type Investment,
   type InvestmentType,
+  type NetWorthSnapshot,
   type Transaction,
 } from './database';
+
+/** Prefijo de fecha para filtrar por año, mes o día: "2026", "2026-06", "2026-06-11". */
+function datePrefix(year: number, month?: number, day?: number): string {
+  let prefix = String(year);
+  if (month !== undefined) {
+    prefix += `-${String(month).padStart(2, '0')}`;
+    if (day !== undefined) prefix += `-${String(day).padStart(2, '0')}`;
+  }
+  return prefix;
+}
 
 // ---------- Ajustes / Cuenta Base ----------
 
@@ -197,23 +208,126 @@ export async function deleteTransaction(db: SQLiteDatabase, transactionId: numbe
 }
 
 /**
- * Gastos e ingresos de un periodo. `month` es opcional: sin él devuelve el año entero.
+ * Gastos e ingresos de un periodo: año entero, mes concreto o día concreto
+ * según cuántos componentes de fecha se pasen.
  */
 export async function getTransactionsForPeriod(
   db: SQLiteDatabase,
   year: number,
-  month?: number
+  month?: number,
+  day?: number
 ): Promise<Transaction[]> {
-  const prefix =
-    month !== undefined ? `${year}-${String(month).padStart(2, '0')}%` : `${year}%`;
   return await db.getAllAsync<Transaction>(
     `SELECT t.*, c.name AS category_name
      FROM transactions t
      LEFT JOIN categories c ON c.id = t.category_id
      WHERE t.date LIKE ? AND t.type IN ('gasto', 'ingreso')
      ORDER BY t.date DESC`,
-    prefix
+    `${datePrefix(year, month, day)}%`
   );
+}
+
+export type CategoryTotal = {
+  category_name: string | null;
+  total: number;
+};
+
+/** Total gastado/ingresado por categoría en el periodo, de mayor a menor. */
+export async function getCategoryTotals(
+  db: SQLiteDatabase,
+  type: 'gasto' | 'ingreso',
+  year: number,
+  month?: number,
+  day?: number
+): Promise<CategoryTotal[]> {
+  return await db.getAllAsync<CategoryTotal>(
+    `SELECT c.name AS category_name, SUM(t.amount) AS total
+     FROM transactions t
+     LEFT JOIN categories c ON c.id = t.category_id
+     WHERE t.date LIKE ? AND t.type = ?
+     GROUP BY t.category_id
+     ORDER BY total DESC`,
+    `${datePrefix(year, month, day)}%`,
+    type
+  );
+}
+
+export type MonthlyTotal = {
+  month: number;
+  income: number;
+  expense: number;
+};
+
+/** Ingresos y gastos de un año agrupados por mes (solo meses con movimientos). */
+export async function getMonthlyTotals(
+  db: SQLiteDatabase,
+  year: number
+): Promise<MonthlyTotal[]> {
+  return await db.getAllAsync<MonthlyTotal>(
+    `SELECT CAST(substr(date, 6, 2) AS INTEGER) AS month,
+            SUM(CASE WHEN type = 'ingreso' THEN amount ELSE 0 END) AS income,
+            SUM(CASE WHEN type = 'gasto' THEN amount ELSE 0 END) AS expense
+     FROM transactions
+     WHERE date LIKE ? AND type IN ('gasto', 'ingreso')
+     GROUP BY month
+     ORDER BY month`,
+    `${year}%`
+  );
+}
+
+// ---------- Datos para el calendario (balance neto por celda) ----------
+
+type NetRow = { key: string; net: number };
+
+function netRowsToMap(rows: NetRow[]): Map<number, number> {
+  const map = new Map<number, number>();
+  for (const row of rows) map.set(Number(row.key), row.net);
+  return map;
+}
+
+/** Balance neto (ingresos - gastos) de cada día de un mes. Clave: día 1-31. */
+export async function getDailyNets(
+  db: SQLiteDatabase,
+  year: number,
+  month: number
+): Promise<Map<number, number>> {
+  const rows = await db.getAllAsync<NetRow>(
+    `SELECT substr(date, 9, 2) AS key,
+            SUM(CASE WHEN type = 'ingreso' THEN amount ELSE -amount END) AS net
+     FROM transactions
+     WHERE date LIKE ? AND type IN ('gasto', 'ingreso')
+     GROUP BY key`,
+    `${datePrefix(year, month)}%`
+  );
+  return netRowsToMap(rows);
+}
+
+/** Balance neto de cada mes de un año. Clave: mes 1-12. */
+export async function getMonthlyNets(
+  db: SQLiteDatabase,
+  year: number
+): Promise<Map<number, number>> {
+  const rows = await db.getAllAsync<NetRow>(
+    `SELECT substr(date, 6, 2) AS key,
+            SUM(CASE WHEN type = 'ingreso' THEN amount ELSE -amount END) AS net
+     FROM transactions
+     WHERE date LIKE ? AND type IN ('gasto', 'ingreso')
+     GROUP BY key`,
+    `${year}%`
+  );
+  return netRowsToMap(rows);
+}
+
+/** Balance neto de cada año con movimientos. Clave: año. */
+export async function getYearlyNets(db: SQLiteDatabase): Promise<Map<number, number>> {
+  const rows = await db.getAllAsync<NetRow>(
+    `SELECT substr(date, 1, 4) AS key,
+            SUM(CASE WHEN type = 'ingreso' THEN amount ELSE -amount END) AS net
+     FROM transactions
+     WHERE type IN ('gasto', 'ingreso')
+     GROUP BY key`
+  );
+  return netRowsToMap(rows);
 }
 
 // ---------- Inversiones ----------
@@ -225,6 +339,28 @@ export async function getInvestments(db: SQLiteDatabase): Promise<Investment[]> 
      JOIN accounts a ON a.id = i.platform_account_id
      ORDER BY i.type, i.name`
   );
+}
+
+export type InvestmentResult = { ok: true } | { ok: false; reason: string };
+
+/** Comprueba que la cuenta tiene saldo suficiente antes de invertir desde ella. */
+async function checkSufficientBalance(
+  db: SQLiteDatabase,
+  accountId: number,
+  amount: number
+): Promise<InvestmentResult> {
+  const account = await db.getFirstAsync<Account>(
+    'SELECT * FROM accounts WHERE id = ?',
+    accountId
+  );
+  if (!account) return { ok: false, reason: 'La cuenta no existe.' };
+  if (account.balance < amount) {
+    return {
+      ok: false,
+      reason: `Saldo insuficiente en "${account.name}". Disponible: ${account.balance.toFixed(2)} €.`,
+    };
+  }
+  return { ok: true };
 }
 
 /**
@@ -241,7 +377,10 @@ export async function createInvestment(
     symbol: string | null;
     amount: number;
   }
-): Promise<void> {
+): Promise<InvestmentResult> {
+  const check = await checkSufficientBalance(db, params.platformAccountId, params.amount);
+  if (!check.ok) return check;
+
   let units: number | null = null;
   if (params.symbol) {
     const quote = await fetchQuote(params.symbol);
@@ -267,6 +406,7 @@ export async function createInvestment(
       params.platformAccountId
     );
   });
+  return { ok: true };
 }
 
 /**
@@ -277,12 +417,15 @@ export async function addContribution(
   db: SQLiteDatabase,
   investmentId: number,
   amount: number
-): Promise<void> {
+): Promise<InvestmentResult> {
   const inv = await db.getFirstAsync<Investment>(
     'SELECT * FROM investments WHERE id = ?',
     investmentId
   );
-  if (!inv) return;
+  if (!inv) return { ok: false, reason: 'La inversión no existe.' };
+
+  const check = await checkSufficientBalance(db, inv.platform_account_id, amount);
+  if (!check.ok) return check;
 
   let newUnits = inv.units;
   let newValue = inv.current_value + amount;
@@ -313,6 +456,7 @@ export async function addContribution(
       inv.platform_account_id
     );
   });
+  return { ok: true };
 }
 
 /** Ajuste manual del valor actual (icono de lápiz). */
@@ -327,6 +471,78 @@ export async function setInvestmentValue(
     nowLocalISO(),
     investmentId
   );
+}
+
+/**
+ * Edición integral de una inversión sin perder el capital aportado ni su historial.
+ *
+ * - Cambio de plataforma: el capital aportado (`invested`) se devuelve a la cuenta
+ *   antigua y se descuenta de la nueva, que debe tener saldo suficiente.
+ * - Cambio de símbolo: se recalculan las participaciones con la cotización actual
+ *   manteniendo el valor; si la API no responde quedan pendientes y se calculan
+ *   en la siguiente actualización de cotizaciones.
+ */
+export async function updateInvestment(
+  db: SQLiteDatabase,
+  investmentId: number,
+  params: {
+    name: string;
+    symbol: string | null;
+    platformAccountId: number;
+    currentValue: number;
+  }
+): Promise<InvestmentResult> {
+  const inv = await db.getFirstAsync<Investment>(
+    'SELECT * FROM investments WHERE id = ?',
+    investmentId
+  );
+  if (!inv) return { ok: false, reason: 'La inversión no existe.' };
+
+  const platformChanged = params.platformAccountId !== inv.platform_account_id;
+  if (platformChanged) {
+    const check = await checkSufficientBalance(db, params.platformAccountId, inv.invested);
+    if (!check.ok) return check;
+  }
+
+  const newSymbol = params.symbol ? params.symbol.trim().toUpperCase() : null;
+  const valueChanged = Math.abs(params.currentValue - inv.current_value) > 0.004;
+  let units = inv.units;
+  if (newSymbol !== inv.symbol || (valueChanged && newSymbol)) {
+    if (newSymbol === null) {
+      units = null;
+    } else {
+      const quote = await fetchQuote(newSymbol);
+      units = quote && quote.price > 0 ? params.currentValue / quote.price : null;
+    }
+  }
+
+  await db.withTransactionAsync(async () => {
+    if (platformChanged) {
+      await db.runAsync(
+        'UPDATE accounts SET balance = balance + ? WHERE id = ?',
+        inv.invested,
+        inv.platform_account_id
+      );
+      await db.runAsync(
+        'UPDATE accounts SET balance = balance - ? WHERE id = ?',
+        inv.invested,
+        params.platformAccountId
+      );
+    }
+    await db.runAsync(
+      `UPDATE investments
+       SET name = ?, symbol = ?, platform_account_id = ?, units = ?, current_value = ?, last_updated = ?
+       WHERE id = ?`,
+      params.name.trim(),
+      newSymbol,
+      params.platformAccountId,
+      units,
+      params.currentValue,
+      nowLocalISO(),
+      investmentId
+    );
+  });
+  return { ok: true };
 }
 
 export async function deleteInvestment(
@@ -352,32 +568,43 @@ export async function deleteInvestment(
 }
 
 /**
- * Actualiza la cotización de todas las inversiones con símbolo y participaciones.
- * Devuelve cuántas se actualizaron y cuántas fallaron.
+ * Actualiza la cotización de todas las inversiones con símbolo.
+ * Si una inversión aún no tiene participaciones (la API falló al crearla o al
+ * cambiar el símbolo), se calculan ahora a partir de su valor actual.
+ * Devuelve los ids que fallaron para señalarlos en la interfaz, sin alertas.
  */
 export async function refreshQuotes(
   db: SQLiteDatabase
-): Promise<{ updated: number; failed: number }> {
+): Promise<{ updated: number; failedIds: number[] }> {
   const investments = await db.getAllAsync<Investment>(
-    'SELECT * FROM investments WHERE symbol IS NOT NULL AND units IS NOT NULL'
+    'SELECT * FROM investments WHERE symbol IS NOT NULL'
   );
   let updated = 0;
-  let failed = 0;
+  const failedIds: number[] = [];
   for (const inv of investments) {
     const quote = await fetchQuote(inv.symbol!);
-    if (quote && quote.price > 0 && inv.units) {
+    if (!quote || quote.price <= 0) {
+      failedIds.push(inv.id);
+      continue;
+    }
+    if (inv.units) {
       await db.runAsync(
         'UPDATE investments SET current_value = ?, last_updated = ? WHERE id = ?',
         inv.units * quote.price,
         nowLocalISO(),
         inv.id
       );
-      updated++;
     } else {
-      failed++;
+      await db.runAsync(
+        'UPDATE investments SET units = ?, last_updated = ? WHERE id = ?',
+        inv.current_value / quote.price,
+        nowLocalISO(),
+        inv.id
+      );
     }
+    updated++;
   }
-  return { updated, failed };
+  return { updated, failedIds };
 }
 
 // ---------- Patrimonio ----------
@@ -392,4 +619,25 @@ export async function getTotals(
     'SELECT SUM(current_value) AS total FROM investments'
   );
   return { cash: cash?.total ?? 0, invested: invested?.total ?? 0 };
+}
+
+/** Guarda (o actualiza) la foto del patrimonio de hoy para el gráfico de evolución. */
+export async function recordNetWorthSnapshot(db: SQLiteDatabase) {
+  const { cash, invested } = await getTotals(db);
+  const today = nowLocalISO().slice(0, 10);
+  await db.runAsync(
+    'INSERT OR REPLACE INTO net_worth_snapshots (date, cash, invested, total) VALUES (?, ?, ?, ?)',
+    today,
+    cash,
+    invested,
+    cash + invested
+  );
+}
+
+export async function getNetWorthSnapshots(
+  db: SQLiteDatabase
+): Promise<NetWorthSnapshot[]> {
+  return await db.getAllAsync<NetWorthSnapshot>(
+    'SELECT * FROM net_worth_snapshots ORDER BY date'
+  );
 }

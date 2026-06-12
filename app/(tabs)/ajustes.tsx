@@ -1,5 +1,8 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
+import { File, Paths } from 'expo-file-system';
 import { useFocusEffect } from 'expo-router';
+import * as Sharing from 'expo-sharing';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useState } from 'react';
 import {
@@ -26,7 +29,8 @@ import {
   setBaseAccountId,
 } from '@/db/queries';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { formatCurrency } from '@/lib/format';
+import { exportAll, importAll, parseBackup, toCSV, toJSON } from '@/lib/backup';
+import { formatCurrency, nowLocalISO } from '@/lib/format';
 
 export default function AjustesScreen() {
   const db = useSQLiteContext();
@@ -82,6 +86,75 @@ export default function AjustesScreen() {
           onPress: async () => {
             await deleteCategory(db, category.id);
             await load();
+          },
+        },
+      ]
+    );
+  };
+
+  const handleExport = async (format: 'csv' | 'json') => {
+    try {
+      const data = await exportAll(db);
+      const content = format === 'csv' ? toCSV(data) : toJSON(data);
+      const fileName = `mis-finanzas-backup-${nowLocalISO().slice(0, 10)}.${format}`;
+      const file = new File(Paths.cache, fileName);
+      if (file.exists) file.delete();
+      file.create();
+      file.write(content);
+      await Sharing.shareAsync(file.uri, {
+        mimeType: format === 'csv' ? 'text/csv' : 'application/json',
+        dialogTitle: 'Guardar copia de seguridad',
+      });
+    } catch (error) {
+      Alert.alert('Error al exportar', error instanceof Error ? error.message : 'Error desconocido.');
+    }
+  };
+
+  const handleImport = async () => {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ['text/csv', 'text/comma-separated-values', 'application/json', 'text/plain'],
+      copyToCacheDirectory: true,
+    });
+    if (result.canceled || result.assets.length === 0) return;
+
+    let text: string;
+    try {
+      text = await new File(result.assets[0].uri).text();
+    } catch {
+      Alert.alert('Error al leer', 'No se ha podido leer el archivo seleccionado.');
+      return;
+    }
+
+    let data;
+    try {
+      data = parseBackup(text);
+    } catch (error) {
+      Alert.alert(
+        'Archivo no válido',
+        error instanceof Error ? error.message : 'El archivo no es un backup de Mis Finanzas.'
+      );
+      return;
+    }
+
+    Alert.alert(
+      'Restaurar copia de seguridad',
+      `El archivo contiene ${data.accounts.length} cuenta(s), ${data.transactions.length} movimiento(s) y ${data.investments.length} inversión(es).\n\nSe REEMPLAZARÁN todos los datos actuales. ¿Continuar?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Restaurar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await importAll(db, data);
+              await load();
+              Alert.alert('Restauración completada', 'Los datos se han importado correctamente.');
+            } catch (error) {
+              Alert.alert(
+                'Error al importar',
+                error instanceof Error ? error.message : 'No se han podido importar los datos.'
+              );
+            }
           },
         },
       ]
@@ -204,6 +277,37 @@ export default function AjustesScreen() {
           setNewIncomeCategory
         )}
 
+        {/* Copia de seguridad */}
+        <View style={[styles.card, { backgroundColor: palette.card, borderColor: palette.border }]}>
+          <Text style={[styles.cardTitle, { color: palette.text }]}>Copia de seguridad</Text>
+          <Text style={[styles.cardSubtitle, { color: palette.muted }]}>
+            Exporta todos tus datos a un archivo para guardarlos o pasarlos a otro móvil, e
+            importa un backup para restaurarlos.
+          </Text>
+          <View style={styles.backupRow}>
+            <Pressable
+              style={[styles.backupButton, { borderColor: palette.tint }]}
+              onPress={() => handleExport('csv')}>
+              <MaterialCommunityIcons name="file-export-outline" size={18} color={palette.tint} />
+              <Text style={[styles.backupText, { color: palette.tint }]}>Exportar CSV</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.backupButton, { borderColor: palette.tint }]}
+              onPress={() => handleExport('json')}>
+              <MaterialCommunityIcons name="code-json" size={18} color={palette.tint} />
+              <Text style={[styles.backupText, { color: palette.tint }]}>Exportar JSON</Text>
+            </Pressable>
+          </View>
+          <Pressable
+            style={[styles.backupButton, { borderColor: palette.tint }]}
+            onPress={handleImport}>
+            <MaterialCommunityIcons name="file-import-outline" size={18} color={palette.tint} />
+            <Text style={[styles.backupText, { color: palette.tint }]}>
+              Importar backup (CSV o JSON)
+            </Text>
+          </Pressable>
+        </View>
+
         {/* Zona peligrosa */}
         <View style={[styles.card, { borderColor: palette.danger, backgroundColor: palette.card }]}>
           <Text style={[styles.cardTitle, { color: palette.danger }]}>Zona peligrosa</Text>
@@ -295,6 +399,25 @@ const styles = StyleSheet.create({
   addButton: {
     borderRadius: 10,
     padding: 10,
+  },
+  backupRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  backupButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+  },
+  backupText: {
+    fontSize: 13,
+    fontWeight: '700',
   },
   dangerButton: {
     flexDirection: 'row',

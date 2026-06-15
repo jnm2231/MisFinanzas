@@ -130,7 +130,7 @@ export function WeekBarChart({ days, height = 200 }: Props) {
       {hasData && (
         <View style={styles.scaleRow}>
           <Text style={[styles.scaleText, { color: palette.muted }]}>
-            Máx: {formatCompactNet(maxMagnitude)} €
+            Escala: ±{formatCompactNet(maxMagnitude).replace('+', '')} €
           </Text>
         </View>
       )}

@@ -154,20 +154,23 @@ export async function addTransaction(
   db: SQLiteDatabase,
   type: 'gasto' | 'ingreso',
   amount: number,
-  categoryId: number
+  categoryId: number,
+  note: string | null = null
 ): Promise<boolean> {
   const baseId = await getBaseAccountId(db);
   if (baseId === null) return false;
 
+  const cleanNote = note && note.trim() ? note.trim() : null;
   const delta = type === 'gasto' ? -amount : amount;
   await db.withTransactionAsync(async () => {
     await db.runAsync(
-      `INSERT INTO transactions (type, amount, category_id, account_id, date)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO transactions (type, amount, category_id, account_id, note, date)
+       VALUES (?, ?, ?, ?, ?, ?)`,
       type,
       amount,
       categoryId,
       baseId,
+      cleanNote,
       nowLocalISO()
     );
     await db.runAsync('UPDATE accounts SET balance = balance + ? WHERE id = ?', delta, baseId);

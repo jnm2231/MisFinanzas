@@ -62,6 +62,7 @@ export default function BalanceScreen() {
 
   const [transactions, setTransactions] = useState<LedgerEntry[]>([]);
   const [monthlyTotals, setMonthlyTotals] = useState<MonthlyTotal[]>([]);
+  const [expandedNotes, setExpandedNotes] = useState<Set<number>>(new Set());
   const [expenseByCategory, setExpenseByCategory] = useState<CategoryTotal[]>([]);
   const [incomeByCategory, setIncomeByCategory] = useState<CategoryTotal[]>([]);
 
@@ -200,8 +201,19 @@ export default function BalanceScreen() {
     );
   };
 
+  const toggleNote = (id: number) => {
+    setExpandedNotes((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   const renderRow = (tx: LedgerEntry) => {
     if (tx.type === 'transferencia') return renderTransferRow(tx);
+    const hasNote = !!tx.note && tx.note.trim() !== '';
+    const noteOpen = expandedNotes.has(tx.id);
     return (
       <View key={tx.id} style={[styles.row, { borderBottomColor: palette.border }]}>
         <View style={{ flex: 1 }}>
@@ -214,6 +226,17 @@ export default function BalanceScreen() {
           <Text style={[styles.rowAccount, { color: palette.muted }]}>
             {tx.account_name} · saldo {formatCurrency(tx.balance_after)}
           </Text>
+          {hasNote && (
+            <Pressable style={styles.noteToggle} hitSlop={6} onPress={() => toggleNote(tx.id)}>
+              <MaterialCommunityIcons name="comment-text-outline" size={14} color={palette.tint} />
+              <Text style={[styles.noteToggleText, { color: palette.tint }]}>
+                {noteOpen ? 'Ocultar comentario' : 'Comentario'}
+              </Text>
+            </Pressable>
+          )}
+          {hasNote && noteOpen && (
+            <Text style={[styles.rowNote, { color: palette.muted }]}>{tx.note}</Text>
+          )}
         </View>
         <Text
           style={[
@@ -573,6 +596,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+  },
+  noteToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+    alignSelf: 'flex-start',
+  },
+  noteToggleText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  rowNote: {
+    fontSize: 12,
+    marginTop: 4,
+    lineHeight: 17,
+    fontStyle: 'italic',
   },
   rowAmount: {
     fontSize: 15,

@@ -32,8 +32,12 @@ export default function AgregarScreen() {
 
   const [expenseAmount, setExpenseAmount] = useState('');
   const [expenseCategoryId, setExpenseCategoryId] = useState<number | null>(null);
+  const [expenseNote, setExpenseNote] = useState('');
+  const [showExpenseNote, setShowExpenseNote] = useState(false);
   const [incomeAmount, setIncomeAmount] = useState('');
   const [incomeCategoryId, setIncomeCategoryId] = useState<number | null>(null);
+  const [incomeNote, setIncomeNote] = useState('');
+  const [showIncomeNote, setShowIncomeNote] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -58,6 +62,7 @@ export default function AgregarScreen() {
   const handleAdd = async (type: 'gasto' | 'ingreso') => {
     const amountText = type === 'gasto' ? expenseAmount : incomeAmount;
     const categoryId = type === 'gasto' ? expenseCategoryId : incomeCategoryId;
+    const note = type === 'gasto' ? expenseNote : incomeNote;
 
     const amount = parseAmount(amountText);
     if (amount === null) {
@@ -72,7 +77,7 @@ export default function AgregarScreen() {
       return;
     }
 
-    const ok = await addTransaction(db, type, amount, categoryId);
+    const ok = await addTransaction(db, type, amount, categoryId, note);
     if (!ok) {
       Alert.alert('Sin Cuenta Base', 'Configura la Cuenta Base en la pestaña Ajustes.');
       return;
@@ -80,8 +85,12 @@ export default function AgregarScreen() {
 
     if (type === 'gasto') {
       setExpenseAmount('');
+      setExpenseNote('');
+      setShowExpenseNote(false);
     } else {
       setIncomeAmount('');
+      setIncomeNote('');
+      setShowIncomeNote(false);
     }
     showFeedback(
       type === 'gasto'
@@ -117,6 +126,41 @@ export default function AgregarScreen() {
       })}
       {categories.length === 0 && (
         <Text style={{ color: palette.muted }}>Añade categorías desde Ajustes.</Text>
+      )}
+    </View>
+  );
+
+  const renderNoteField = (
+    visible: boolean,
+    onToggle: () => void,
+    value: string,
+    onChange: (text: string) => void,
+    accentColor: string
+  ) => (
+    <View style={{ gap: 8 }}>
+      <Pressable style={styles.noteToggle} hitSlop={6} onPress={onToggle}>
+        <MaterialCommunityIcons
+          name={visible ? 'comment-remove-outline' : 'comment-plus-outline'}
+          size={18}
+          color={accentColor}
+        />
+        <Text style={[styles.noteToggleText, { color: accentColor }]}>
+          {visible ? 'Ocultar comentario' : 'Añadir comentario'}
+        </Text>
+      </Pressable>
+      {visible && (
+        <TextInput
+          style={[
+            styles.noteInput,
+            { borderColor: palette.border, color: palette.text, backgroundColor: palette.background },
+          ]}
+          placeholder="Comentario (opcional)..."
+          placeholderTextColor={palette.muted}
+          value={value}
+          onChangeText={onChange}
+          multiline
+          textAlignVertical="top"
+        />
       )}
     </View>
   );
@@ -172,6 +216,13 @@ export default function AgregarScreen() {
           />
           <Text style={[styles.sectionLabel, { color: palette.muted }]}>Categoría</Text>
           {renderChips(expenseCategories, expenseCategoryId, setExpenseCategoryId, palette.danger)}
+          {renderNoteField(
+            showExpenseNote,
+            () => setShowExpenseNote((v) => !v),
+            expenseNote,
+            setExpenseNote,
+            palette.danger
+          )}
           <Pressable
             style={[styles.button, { backgroundColor: palette.danger }]}
             onPress={() => handleAdd('gasto')}>
@@ -198,6 +249,13 @@ export default function AgregarScreen() {
           />
           <Text style={[styles.sectionLabel, { color: palette.muted }]}>Tipo de ingreso</Text>
           {renderChips(incomeCategories, incomeCategoryId, setIncomeCategoryId, palette.success)}
+          {renderNoteField(
+            showIncomeNote,
+            () => setShowIncomeNote((v) => !v),
+            incomeNote,
+            setIncomeNote,
+            palette.success
+          )}
           <Pressable
             style={[styles.button, { backgroundColor: palette.success }]}
             onPress={() => handleAdd('ingreso')}>
@@ -285,6 +343,24 @@ const styles = StyleSheet.create({
   chipText: {
     fontSize: 14,
     fontWeight: '500',
+  },
+  noteToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+  },
+  noteToggleText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  noteInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    minHeight: 60,
   },
   button: {
     borderRadius: 10,

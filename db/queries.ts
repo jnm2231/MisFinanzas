@@ -227,6 +227,47 @@ export async function getTransactionsForPeriod(
   );
 }
 
+/**
+ * Gastos e ingresos cuyo día (YYYY-MM-DD) cae en [startKey, endExclusiveKey).
+ * Pensado para rangos arbitrarios como una semana.
+ */
+export async function getTransactionsForRange(
+  db: SQLiteDatabase,
+  startKey: string,
+  endExclusiveKey: string
+): Promise<Transaction[]> {
+  return await db.getAllAsync<Transaction>(
+    `SELECT t.*, c.name AS category_name
+     FROM transactions t
+     LEFT JOIN categories c ON c.id = t.category_id
+     WHERE substr(t.date, 1, 10) >= ? AND substr(t.date, 1, 10) < ?
+       AND t.type IN ('gasto', 'ingreso')
+     ORDER BY t.date DESC`,
+    startKey,
+    endExclusiveKey
+  );
+}
+
+/** Igual que getCategoryTotals pero para un rango de fechas [startKey, endExclusiveKey). */
+export async function getCategoryTotalsForRange(
+  db: SQLiteDatabase,
+  type: 'gasto' | 'ingreso',
+  startKey: string,
+  endExclusiveKey: string
+): Promise<CategoryTotal[]> {
+  return await db.getAllAsync<CategoryTotal>(
+    `SELECT c.name AS category_name, SUM(t.amount) AS total
+     FROM transactions t
+     LEFT JOIN categories c ON c.id = t.category_id
+     WHERE substr(t.date, 1, 10) >= ? AND substr(t.date, 1, 10) < ? AND t.type = ?
+     GROUP BY t.category_id
+     ORDER BY total DESC`,
+    startKey,
+    endExclusiveKey,
+    type
+  );
+}
+
 export type CategoryTotal = {
   category_name: string | null;
   total: number;

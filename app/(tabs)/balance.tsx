@@ -12,27 +12,39 @@ import { type Transaction } from '@/db/database';
 import {
   deleteTransaction,
   getCategoryTotals,
+  getCategoryTotalsForRange,
   getMonthlyTotals,
   getTransactionsForPeriod,
+  getTransactionsForRange,
   type CategoryTotal,
   type MonthlyTotal,
 } from '@/db/queries';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import {
   formatCurrency,
-  formatFullDate,
+  formatDayHeading,
   formatMonthYear,
   formatShortDate,
+  formatWeekRange,
+  getWeekRange,
   monthName,
+  toDateKey,
 } from '@/lib/format';
 
-type Mode = CalendarLevel; // 'dia' | 'mensual' | 'anual'
+type Mode = 'semana' | 'mensual' | 'anual';
 
 const MODE_LABELS: { mode: Mode; label: string }[] = [
-  { mode: 'dia', label: 'Día' },
+  { mode: 'semana', label: 'Semana' },
   { mode: 'mensual', label: 'Mensual' },
   { mode: 'anual', label: 'Anual' },
 ];
+
+/** Nivel del calendario emergente según el modo del balance. */
+const MODE_TO_CALENDAR: Record<Mode, CalendarLevel> = {
+  semana: 'dia',
+  mensual: 'mensual',
+  anual: 'anual',
+};
 
 export default function BalanceScreen() {
   const db = useSQLiteContext();
@@ -51,19 +63,26 @@ export default function BalanceScreen() {
   const [expenseByCategory, setExpenseByCategory] = useState<CategoryTotal[]>([]);
   const [incomeByCategory, setIncomeByCategory] = useState<CategoryTotal[]>([]);
 
-  const load = useCallback(async () => {
-    const m = mode === 'anual' ? undefined : month;
-    const d = mode === 'dia' ? day : undefined;
+  const week = useMemo(() => getWeekRange(year, month, day), [year, month, day]);
 
+  const load = useCallback(async () => {
     if (mode === 'anual') {
       setMonthlyTotals(await getMonthlyTotals(db, year));
       setTransactions([]);
-    } else {
-      setTransactions(await getTransactionsForPeriod(db, year, m, d));
+      setExpenseByCategory(await getCategoryTotals(db, 'gasto', year));
+      setIncomeByCategory(await getCategoryTotals(db, 'ingreso', year));
+    } else if (mode === 'mensual') {
+      setTransactions(await getTransactionsForPeriod(db, year, month));
       setMonthlyTotals([]);
+      setExpenseByCategory(await getCategoryTotals(db, 'gasto', year, month));
+      setIncomeByCategory(await getCategoryTotals(db, 'ingreso', year, month));
+    } else {
+      const w = getWeekRange(year, month, day);
+      setTransactions(await getTransactionsForRange(db, w.startKey, w.endExclusiveKey));
+      setMonthlyTotals([]);
+      setExpenseByCategory(await getCategoryTotalsForRange(db, 'gasto', w.startKey, w.endExclusiveKey));
+      setIncomeByCategory(await getCategoryTotalsForRange(db, 'ingreso', w.startKey, w.endExclusiveKey));
     }
-    setExpenseByCategory(await getCategoryTotals(db, 'gasto', year, m, d));
-    setIncomeByCategory(await getCategoryTotals(db, 'ingreso', year, m, d));
   }, [db, mode, year, month, day]);
 
   useFocusEffect(
@@ -89,7 +108,7 @@ export default function BalanceScreen() {
       setYear(newYear);
     } else {
       const date = new Date(year, month - 1, day);
-      date.setDate(date.getDate() + direction);
+      date.setDate(date.getDate() + direction * 7);
       setYear(date.getFullYear());
       setMonth(date.getMonth() + 1);
       setDay(date.getDate());
@@ -117,9 +136,26 @@ export default function BalanceScreen() {
 
   const balance = totalIncome - totalExpense;
 
+  /** Movimientos de la semana agrupados por día: el día elegido aparte y el resto debajo. */
+  const weekGroups = useMemo(() => {
+    if (mode !== 'semana') return null;
+    const byDay = new Map<string, Transaction[]>();
+    for (const t of transactions) {
+      const key = t.date.slice(0, 10);
+      if (!byDay.has(key)) byDay.set(key, []);
+      byDay.get(key)!.push(t);
+    }
+    const selectedKey = toDateKey(new Date(year, month - 1, day));
+    const selected = byDay.get(selectedKey) ?? [];
+    const others = [...byDay.entries()]
+      .filter(([key]) => key !== selectedKey)
+      .sort((a, b) => (a[0] < b[0] ? 1 : -1));
+    return { selectedKey, selected, others };
+  }, [mode, transactions, year, month, day]);
+
   const periodLabel =
-    mode === 'dia'
-      ? formatFullDate(year, month, day)
+    mode === 'semana'
+      ? formatWeekRange(week.monday, week.sunday)
       : mode === 'mensual'
         ? formatMonthYear(year, month)
         : String(year);
@@ -149,7 +185,7 @@ export default function BalanceScreen() {
           {tx.category_name ?? 'Sin categoría'}
         </Text>
         <Text style={[styles.rowDate, { color: palette.muted }]}>
-          {mode === 'dia' ? tx.date.slice(11, 16) : formatShortDate(tx.date)}
+          {mode === 'mensual' ? formatShortDate(tx.date) : tx.date.slice(11, 16)}
         </Text>
       </View>
       <Text
@@ -199,7 +235,7 @@ export default function BalanceScreen() {
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 16 }]}>
         <Text style={[styles.title, { color: palette.text }]}>Balance</Text>
 
-        {/* Selector Día / Mensual / Anual */}
+        {/* Selector Semana / Mensual / Anual */}
         <View style={[styles.segment, { backgroundColor: palette.card, borderColor: palette.border }]}>
           {MODE_LABELS.map(({ mode: m, label }) => (
             <Pressable
@@ -273,7 +309,7 @@ export default function BalanceScreen() {
               monthlyTotals.map(renderMonthRow)
             )}
           </View>
-        ) : (
+        ) : mode === 'mensual' ? (
           <>
             <View style={[styles.listCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
               <Text style={[styles.listTitle, { color: palette.success }]}>Ingresos</Text>
@@ -297,12 +333,50 @@ export default function BalanceScreen() {
               )}
             </View>
           </>
+        ) : (
+          weekGroups && (
+            <>
+              {/* Día seleccionado, en una sección diferenciada */}
+              <View style={[styles.listCard, { backgroundColor: palette.card, borderColor: palette.tint }]}>
+                <Text style={[styles.listTitle, { color: palette.tint }]}>Día seleccionado</Text>
+                <Text style={[styles.dayHeading, { color: palette.text }]}>
+                  {formatDayHeading(weekGroups.selectedKey)}
+                </Text>
+                {weekGroups.selected.length === 0 ? (
+                  <Text style={[styles.emptyText, { color: palette.muted }]}>
+                    Sin movimientos este día
+                  </Text>
+                ) : (
+                  weekGroups.selected.map(renderRow)
+                )}
+              </View>
+
+              {/* Resto de la semana */}
+              <View style={[styles.listCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
+                <Text style={[styles.listTitle, { color: palette.text }]}>Resto de la semana</Text>
+                {weekGroups.others.length === 0 ? (
+                  <Text style={[styles.emptyText, { color: palette.muted }]}>
+                    Sin más movimientos esta semana
+                  </Text>
+                ) : (
+                  weekGroups.others.map(([key, txs]) => (
+                    <View key={key} style={styles.dayGroup}>
+                      <Text style={[styles.daySubheading, { color: palette.muted }]}>
+                        {formatDayHeading(key)}
+                      </Text>
+                      {txs.map(renderRow)}
+                    </View>
+                  ))
+                )}
+              </View>
+            </>
+          )
         )}
       </ScrollView>
 
       <PeriodCalendar
         visible={calendarVisible}
-        level={mode}
+        level={MODE_TO_CALENDAR[mode]}
         initial={{ year, month, day }}
         onClose={() => setCalendarVisible(false)}
         onSelect={(selection) => {
@@ -390,6 +464,22 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     marginBottom: 4,
+  },
+  dayHeading: {
+    fontSize: 14,
+    fontWeight: '600',
+    textTransform: 'capitalize',
+    marginBottom: 2,
+  },
+  dayGroup: {
+    marginTop: 4,
+  },
+  daySubheading: {
+    fontSize: 13,
+    fontWeight: '700',
+    textTransform: 'capitalize',
+    marginTop: 6,
+    marginBottom: 2,
   },
   row: {
     flexDirection: 'row',

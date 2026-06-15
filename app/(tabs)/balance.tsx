@@ -9,15 +9,14 @@ import { CategoryBars } from '@/components/category-bars';
 import { PeriodCalendar, type CalendarLevel } from '@/components/period-calendar';
 import { WeekBarChart } from '@/components/week-bar-chart';
 import { Colors } from '@/constants/theme';
-import { type Transaction } from '@/db/database';
 import {
   deleteTransaction,
   getCategoryTotals,
   getCategoryTotalsForRange,
+  getLedgerForRange,
   getMonthlyTotals,
-  getTransactionsForPeriod,
-  getTransactionsForRange,
   type CategoryTotal,
+  type LedgerEntry,
   type MonthlyTotal,
 } from '@/db/queries';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -61,7 +60,7 @@ export default function BalanceScreen() {
   const [day, setDay] = useState(today.getDate());
   const [calendarVisible, setCalendarVisible] = useState(false);
 
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [transactions, setTransactions] = useState<LedgerEntry[]>([]);
   const [monthlyTotals, setMonthlyTotals] = useState<MonthlyTotal[]>([]);
   const [expenseByCategory, setExpenseByCategory] = useState<CategoryTotal[]>([]);
   const [incomeByCategory, setIncomeByCategory] = useState<CategoryTotal[]>([]);
@@ -75,13 +74,15 @@ export default function BalanceScreen() {
       setExpenseByCategory(await getCategoryTotals(db, 'gasto', year));
       setIncomeByCategory(await getCategoryTotals(db, 'ingreso', year));
     } else if (mode === 'mensual') {
-      setTransactions(await getTransactionsForPeriod(db, year, month));
+      const startKey = `${year}-${String(month).padStart(2, '0')}-01`;
+      const endKey = toDateKey(new Date(year, month, 1));
+      setTransactions(await getLedgerForRange(db, startKey, endKey));
       setMonthlyTotals([]);
       setExpenseByCategory(await getCategoryTotals(db, 'gasto', year, month));
       setIncomeByCategory(await getCategoryTotals(db, 'ingreso', year, month));
     } else {
       const w = getWeekRange(year, month, day);
-      setTransactions(await getTransactionsForRange(db, w.startKey, w.endExclusiveKey));
+      setTransactions(await getLedgerForRange(db, w.startKey, w.endExclusiveKey));
       setMonthlyTotals([]);
       setExpenseByCategory(await getCategoryTotalsForRange(db, 'gasto', w.startKey, w.endExclusiveKey));
       setIncomeByCategory(await getCategoryTotalsForRange(db, 'ingreso', w.startKey, w.endExclusiveKey));
@@ -142,8 +143,9 @@ export default function BalanceScreen() {
   /** Movimientos de la semana agrupados por día: el día elegido aparte y el resto debajo. */
   const weekGroups = useMemo(() => {
     if (mode !== 'semana') return null;
-    const byDay = new Map<string, Transaction[]>();
+    const byDay = new Map<string, LedgerEntry[]>();
     for (const t of transactions) {
+      if (t.type === 'transferencia') continue;
       const key = t.date.slice(0, 10);
       if (!byDay.has(key)) byDay.set(key, []);
       byDay.get(key)!.push(t);
@@ -176,7 +178,7 @@ export default function BalanceScreen() {
         ? formatMonthYear(year, month)
         : String(year);
 
-  const confirmDelete = (tx: Transaction) => {
+  const confirmDelete = (tx: LedgerEntry) => {
     Alert.alert(
       'Eliminar movimiento',
       `¿Eliminar este ${tx.type} de ${formatCurrency(tx.amount)}? El saldo de la cuenta se revertirá.`,
@@ -194,7 +196,7 @@ export default function BalanceScreen() {
     );
   };
 
-  const renderRow = (tx: Transaction) => (
+  const renderRow = (tx: LedgerEntry) => (
     <View key={tx.id} style={[styles.row, { borderBottomColor: palette.border }]}>
       <View style={{ flex: 1 }}>
         <Text style={[styles.rowCategory, { color: palette.text }]}>
@@ -202,6 +204,9 @@ export default function BalanceScreen() {
         </Text>
         <Text style={[styles.rowDate, { color: palette.muted }]}>
           {mode === 'mensual' ? formatShortDate(tx.date) : tx.date.slice(11, 16)}
+        </Text>
+        <Text style={[styles.rowAccount, { color: palette.muted }]}>
+          {tx.account_name} · saldo {formatCurrency(tx.balance_after)}
         </Text>
       </View>
       <Text
@@ -519,6 +524,11 @@ const styles = StyleSheet.create({
   rowDate: {
     fontSize: 12,
     marginTop: 2,
+  },
+  rowAccount: {
+    fontSize: 12,
+    marginTop: 2,
+    fontStyle: 'italic',
   },
   rowAmount: {
     fontSize: 15,

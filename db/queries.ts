@@ -268,6 +268,80 @@ export async function getCategoryTotalsForRange(
   );
 }
 
+/**
+ * Movimiento enriquecido con el saldo que queda en la(s) cuenta(s) afectada(s)
+ * justo después de la operación. Para transferencias, `balance_after` es el
+ * saldo de la cuenta de origen y `to_balance_after` el de la de destino.
+ */
+export type LedgerEntry = Transaction & {
+  account_name: string;
+  to_account_name: string | null;
+  balance_after: number;
+  to_balance_after: number | null;
+};
+
+/**
+ * Libro de movimientos (gastos, ingresos y transferencias) de un rango de fechas
+ * con el saldo final de cada cuenta tras cada operación.
+ *
+ * El saldo final se calcula reproduciendo el historial hacia atrás desde el saldo
+ * actual de cada cuenta (todas las operaciones, no solo las del rango, porque una
+ * transferencia o un gasto fuera del rango también modifica los saldos). Después
+ * se filtra al rango pedido. Devuelve los movimientos de más reciente a más antiguo.
+ */
+export async function getLedgerForRange(
+  db: SQLiteDatabase,
+  startKey: string,
+  endExclusiveKey: string
+): Promise<LedgerEntry[]> {
+  const accounts = await db.getAllAsync<Account>('SELECT id, name, balance FROM accounts');
+  const nameById = new Map<number, string>();
+  const running = new Map<number, number>();
+  for (const a of accounts) {
+    nameById.set(a.id, a.name);
+    running.set(a.id, a.balance);
+  }
+
+  const all = await db.getAllAsync<Transaction>(
+    `SELECT t.*, c.name AS category_name
+     FROM transactions t
+     LEFT JOIN categories c ON c.id = t.category_id
+     ORDER BY t.date DESC, t.id DESC`
+  );
+
+  const enriched: LedgerEntry[] = [];
+  for (const t of all) {
+    const fromAfter = running.get(t.account_id) ?? 0;
+    let balanceAfter = fromAfter;
+    let toBalanceAfter: number | null = null;
+
+    if (t.type === 'transferencia' && t.to_account_id !== null) {
+      const toAfter = running.get(t.to_account_id) ?? 0;
+      toBalanceAfter = toAfter;
+      // Deshacer el efecto hacia adelante: origen -importe, destino +importe.
+      running.set(t.account_id, fromAfter + t.amount);
+      running.set(t.to_account_id, toAfter - t.amount);
+    } else if (t.type === 'ingreso') {
+      running.set(t.account_id, fromAfter - t.amount);
+    } else {
+      running.set(t.account_id, fromAfter + t.amount);
+    }
+
+    enriched.push({
+      ...t,
+      account_name: nameById.get(t.account_id) ?? '—',
+      to_account_name: t.to_account_id !== null ? nameById.get(t.to_account_id) ?? '—' : null,
+      balance_after: balanceAfter,
+      to_balance_after: toBalanceAfter,
+    });
+  }
+
+  return enriched.filter((e) => {
+    const key = e.date.slice(0, 10);
+    return key >= startKey && key < endExclusiveKey;
+  });
+}
+
 export type CategoryTotal = {
   category_name: string | null;
   total: number;

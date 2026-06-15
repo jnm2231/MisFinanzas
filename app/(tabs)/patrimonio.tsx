@@ -28,7 +28,7 @@ const INVESTMENT_TYPE_LABELS: Record<Investment['type'], string> = {
   accion: 'Acciones',
 };
 
-type RangeKey = '1S' | '1M' | '6M' | '1A' | '2A' | '5A';
+type RangeKey = '1S' | '1M' | '6M' | '1A' | '5A';
 
 /** Rangos del gráfico de evolución. `days` es la ventana hacia atrás desde hoy. */
 const RANGES: { key: RangeKey; label: string; days: number }[] = [
@@ -36,7 +36,6 @@ const RANGES: { key: RangeKey; label: string; days: number }[] = [
   { key: '1M', label: '1 mes', days: 31 },
   { key: '6M', label: '6 meses', days: 183 },
   { key: '1A', label: '1 año', days: 366 },
-  { key: '2A', label: '2 años', days: 731 },
   { key: '5A', label: '5 años', days: 1827 },
 ];
 
@@ -162,6 +161,7 @@ export default function PatrimonioScreen() {
                   active && { backgroundColor: palette.tint },
                 ]}>
                 <Text
+                  numberOfLines={1}
                   style={[
                     styles.rangeChipText,
                     { color: active ? palette.background : palette.muted },
@@ -250,18 +250,19 @@ const styles = StyleSheet.create({
   },
   rangeSelector: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
+    gap: 5,
     marginVertical: 2,
   },
   rangeChip: {
+    flex: 1,
     borderWidth: 1,
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
+    borderRadius: 14,
+    paddingHorizontal: 4,
+    paddingVertical: 6,
+    alignItems: 'center',
   },
   rangeChipText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
   },
   breakdownRow: {

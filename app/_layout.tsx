@@ -37,6 +37,10 @@ export default function RootLayout() {
         <SQLiteProvider databaseName={DATABASE_NAME} onInit={onDatabaseInit} useSuspense>
           <Stack>
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen
+              name="patch-notes"
+              options={{ headerShown: true, title: 'Notas de versión' }}
+            />
           </Stack>
           <StatusBar style="auto" />
         </SQLiteProvider>

@@ -3,14 +3,13 @@ import * as Clipboard from 'expo-clipboard';
 import Constants from 'expo-constants';
 import * as DocumentPicker from 'expo-document-picker';
 import { File, Paths } from 'expo-file-system';
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -21,7 +20,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { PATCH_NOTES } from '@/constants/patchnotes';
+import { CURRENT_VERSION } from '@/constants/patchnotes';
 import { Colors } from '@/constants/theme';
 import { resetDatabase, type Account, type Category, type CategoryType } from '@/db/database';
 import {
@@ -48,7 +47,6 @@ export default function AjustesScreen() {
   const [incomeCategories, setIncomeCategories] = useState<Category[]>([]);
   const [newExpenseCategory, setNewExpenseCategory] = useState('');
   const [newIncomeCategory, setNewIncomeCategory] = useState('');
-  const [patchNotesVisible, setPatchNotesVisible] = useState(false);
   const [backlogNotes, setBacklogNotes] = useState('');
   const [savedNotes, setSavedNotes] = useState('');
 
@@ -400,12 +398,12 @@ export default function AjustesScreen() {
           <View style={styles.aboutRow}>
             <Text style={[styles.aboutLabel, { color: palette.text }]}>Versión</Text>
             <Text style={[styles.aboutValue, { color: palette.muted }]}>
-              {Constants.expoConfig?.version ?? PATCH_NOTES[0]?.version ?? '1.0'}
+              {Constants.expoConfig?.version ?? CURRENT_VERSION}
             </Text>
           </View>
           <Pressable
             style={[styles.backupButton, { borderColor: palette.tint }]}
-            onPress={() => setPatchNotesVisible(true)}>
+            onPress={() => router.push('/patch-notes')}>
             <MaterialCommunityIcons name="text-box-multiple-outline" size={18} color={palette.tint} />
             <Text style={[styles.backupText, { color: palette.tint }]}>Notas de versión</Text>
           </Pressable>
@@ -415,44 +413,6 @@ export default function AjustesScreen() {
           Mis Finanzas · datos guardados solo en este dispositivo
         </Text>
       </ScrollView>
-
-      {/* Modal de notas de versión */}
-      <Modal
-        visible={patchNotesVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setPatchNotesVisible(false)}>
-        <Pressable style={styles.modalBackdrop} onPress={() => setPatchNotesVisible(false)}>
-          <Pressable
-            style={[styles.modalSheet, { backgroundColor: palette.background, borderColor: palette.border }]}
-            onPress={() => {}}>
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: palette.text }]}>Notas de versión</Text>
-              <Pressable hitSlop={8} onPress={() => setPatchNotesVisible(false)}>
-                <MaterialCommunityIcons name="close" size={24} color={palette.muted} />
-              </Pressable>
-            </View>
-            <ScrollView style={{ maxHeight: 460 }} contentContainerStyle={{ gap: 18 }}>
-              {PATCH_NOTES.map((note) => (
-                <View key={note.version} style={{ gap: 8 }}>
-                  <View style={styles.patchVersionRow}>
-                    <Text style={[styles.patchVersion, { color: palette.tint }]}>
-                      Versión {note.version}
-                    </Text>
-                    <Text style={[styles.patchDate, { color: palette.muted }]}>{note.date}</Text>
-                  </View>
-                  {note.changes.map((change, index) => (
-                    <View key={index} style={styles.patchItem}>
-                      <Text style={[styles.patchBullet, { color: palette.muted }]}>•</Text>
-                      <Text style={[styles.patchText, { color: palette.text }]}>{change}</Text>
-                    </View>
-                  ))}
-                </View>
-              ))}
-            </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -583,51 +543,5 @@ const styles = StyleSheet.create({
   version: {
     fontSize: 12,
     textAlign: 'center',
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  modalSheet: {
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 18,
-    gap: 14,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-  },
-  patchVersionRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-  },
-  patchVersion: {
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  patchDate: {
-    fontSize: 13,
-  },
-  patchItem: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  patchBullet: {
-    fontSize: 15,
-    lineHeight: 21,
-  },
-  patchText: {
-    fontSize: 14,
-    lineHeight: 21,
-    flex: 1,
   },
 });

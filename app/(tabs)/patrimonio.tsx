@@ -1,7 +1,7 @@
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { LineChart, type LinePoint } from '@/components/line-chart';
@@ -28,6 +28,24 @@ const INVESTMENT_TYPE_LABELS: Record<Investment['type'], string> = {
   accion: 'Acciones',
 };
 
+type RangeKey = '1S' | '1M' | '6M' | '1A' | '2A' | '5A';
+
+/** Rangos del gráfico de evolución. `days` es la ventana hacia atrás desde hoy. */
+const RANGES: { key: RangeKey; label: string; days: number }[] = [
+  { key: '1S', label: '1 sem', days: 7 },
+  { key: '1M', label: '1 mes', days: 31 },
+  { key: '6M', label: '6 meses', days: 183 },
+  { key: '1A', label: '1 año', days: 366 },
+  { key: '2A', label: '2 años', days: 731 },
+  { key: '5A', label: '5 años', days: 1827 },
+];
+
+/** "2026-06-15" para una fecha local. */
+function toDateKey(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 export default function PatrimonioScreen() {
   const db = useSQLiteContext();
   const palette = Colors[useColorScheme() ?? 'light'];
@@ -36,6 +54,7 @@ export default function PatrimonioScreen() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [snapshots, setSnapshots] = useState<NetWorthSnapshot[]>([]);
+  const [range, setRange] = useState<RangeKey>('1M');
 
   const load = useCallback(async () => {
     // Cada visita registra la foto del día para ir construyendo el histórico.
@@ -78,27 +97,37 @@ export default function PatrimonioScreen() {
   const total = cashTotal + investedTotal;
 
   /**
-   * Puntos del gráfico de evolución: si el histórico abarca varios meses se
-   * agrupa por mes (último valor de cada mes); si no, se muestra día a día.
+   * Puntos del gráfico de evolución para el rango elegido.
+   *
+   * Se filtran las fotos del patrimonio a la ventana del rango (última semana,
+   * mes, año...). Si no hay datos para cubrir todo el rango se muestra solo el
+   * histórico disponible. En rangos cortos (semana/mes) se dibuja día a día; en
+   * rangos largos se agrupa por mes (último valor de cada mes).
    */
   const evolutionPoints = useMemo<LinePoint[]>(() => {
     if (snapshots.length === 0) return [];
-    const firstMonth = snapshots[0].date.slice(0, 7);
-    const lastMonth = snapshots[snapshots.length - 1].date.slice(0, 7);
 
-    if (firstMonth === lastMonth) {
-      return snapshots.map((s) => ({
+    const rangeDef = RANGES.find((r) => r.key === range)!;
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - rangeDef.days);
+    const cutoffKey = toDateKey(cutoff);
+    const filtered = snapshots.filter((s) => s.date >= cutoffKey);
+    if (filtered.length === 0) return [];
+
+    // Rangos cortos: día a día. Rangos largos: un punto por mes.
+    if (rangeDef.days <= 31) {
+      return filtered.map((s) => ({
         label: `${Number(s.date.slice(8, 10))}/${Number(s.date.slice(5, 7))}`,
         value: s.total,
       }));
     }
     const lastPerMonth = new Map<string, NetWorthSnapshot>();
-    for (const s of snapshots) lastPerMonth.set(s.date.slice(0, 7), s);
+    for (const s of filtered) lastPerMonth.set(s.date.slice(0, 7), s);
     return [...lastPerMonth.values()].map((s) => ({
       label: `${monthShortName(Number(s.date.slice(5, 7)))} ${s.date.slice(2, 4)}`,
       value: s.total,
     }));
-  }, [snapshots]);
+  }, [snapshots, range]);
 
   return (
     <ScrollView
@@ -120,7 +149,30 @@ export default function PatrimonioScreen() {
         <Text style={[styles.breakdownLabel, { color: palette.text }]}>
           📊 Evolución del Patrimonio
         </Text>
-        <LineChart points={evolutionPoints} />
+        <View style={styles.rangeSelector}>
+          {RANGES.map((r) => {
+            const active = r.key === range;
+            return (
+              <Pressable
+                key={r.key}
+                onPress={() => setRange(r.key)}
+                style={[
+                  styles.rangeChip,
+                  { borderColor: active ? palette.tint : palette.border },
+                  active && { backgroundColor: palette.tint },
+                ]}>
+                <Text
+                  style={[
+                    styles.rangeChipText,
+                    { color: active ? palette.background : palette.muted },
+                  ]}>
+                  {r.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <LineChart points={evolutionPoints} baselineZero />
       </View>
 
       <View style={[styles.card, { backgroundColor: palette.card, borderColor: palette.border }]}>
@@ -195,6 +247,22 @@ const styles = StyleSheet.create({
   totalValue: {
     fontSize: 36,
     fontWeight: '800',
+  },
+  rangeSelector: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginVertical: 2,
+  },
+  rangeChip: {
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+  },
+  rangeChipText: {
+    fontSize: 13,
+    fontWeight: '700',
   },
   breakdownRow: {
     flexDirection: 'row',

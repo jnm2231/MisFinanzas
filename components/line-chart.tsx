@@ -14,10 +14,16 @@ export type LinePoint = {
 type Props = {
   points: LinePoint[];
   height?: number;
+  /**
+   * Si es true, la base del eje Y es 0 € (o el mínimo si hay valores negativos)
+   * en lugar del valor más bajo de los datos. Así, según crece el patrimonio el
+   * eje se compacta y la gráfica no aumenta de tamaño.
+   */
+  baselineZero?: boolean;
 };
 
 /** Gráfico de líneas sencillo (react-native-svg) para la evolución del patrimonio. */
-export function LineChart({ points, height = 180 }: Props) {
+export function LineChart({ points, height = 180, baselineZero = false }: Props) {
   const palette = Colors[useColorScheme() ?? 'light'];
   const [width, setWidth] = useState(0);
 
@@ -32,8 +38,9 @@ export function LineChart({ points, height = 180 }: Props) {
   const PAD_X = 8;
   const PAD_Y = 14;
   const values = points.map((p) => p.value);
-  const min = Math.min(...values);
+  const dataMin = Math.min(...values);
   const max = Math.max(...values);
+  const min = baselineZero ? Math.min(0, dataMin) : dataMin;
   const range = max - min || Math.abs(max) || 1;
 
   const chartWidth = Math.max(width - PAD_X * 2, 1);

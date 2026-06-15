@@ -184,15 +184,15 @@ export function PeriodCalendar({ visible, level, initial, onSelect, onClose }: P
                     ]}>
                     {day}
                   </Text>
-                  {nets.has(day) && (
-                    <Text
-                      style={[
-                        styles.cellNet,
-                        { color: isSelected ? palette.background : netColor(nets.get(day)) },
-                      ]}>
-                      {formatCompactNet(nets.get(day)!)}
-                    </Text>
-                  )}
+                  {/* Línea de neto siempre presente (espacio si no hay) para alinear los números */}
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.cellNet,
+                      { color: isSelected ? palette.background : netColor(nets.get(day)) },
+                    ]}>
+                    {nets.has(day) ? formatCompactNet(nets.get(day)!) : ' '}
+                  </Text>
                 </Pressable>
               </View>
             );
@@ -221,15 +221,14 @@ export function PeriodCalendar({ visible, level, initial, onSelect, onClose }: P
                 style={[styles.cellLabel, { color: isSelected ? palette.background : palette.text }]}>
                 {monthShortName(month)}
               </Text>
-              {nets.has(month) && (
-                <Text
-                  style={[
-                    styles.cellNet,
-                    { color: isSelected ? palette.background : netColor(nets.get(month)) },
-                  ]}>
-                  {formatCompactNet(nets.get(month)!)}
-                </Text>
-              )}
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.cellNet,
+                  { color: isSelected ? palette.background : netColor(nets.get(month)) },
+                ]}>
+                {nets.has(month) ? formatCompactNet(nets.get(month)!) : ' '}
+              </Text>
             </Pressable>
           </View>
         );
@@ -256,15 +255,14 @@ export function PeriodCalendar({ visible, level, initial, onSelect, onClose }: P
                 style={[styles.cellLabel, { color: isSelected ? palette.background : palette.text }]}>
                 {year}
               </Text>
-              {nets.has(year) && (
-                <Text
-                  style={[
-                    styles.cellNet,
-                    { color: isSelected ? palette.background : netColor(nets.get(year)) },
-                  ]}>
-                  {formatCompactNet(nets.get(year)!)}
-                </Text>
-              )}
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.cellNet,
+                  { color: isSelected ? palette.background : netColor(nets.get(year)) },
+                ]}>
+                {nets.has(year) ? formatCompactNet(nets.get(year)!) : ' '}
+              </Text>
             </Pressable>
           </View>
         );
@@ -325,12 +323,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.55)',
     justifyContent: 'center',
-    padding: 16,
+    padding: 12,
   },
   sheet: {
     borderRadius: 20,
     borderWidth: 1,
-    padding: 18,
+    padding: 14,
     gap: 12,
   },
   subtitle: {
@@ -370,13 +368,13 @@ const styles = StyleSheet.create({
   dayCell: {
     flexBasis: `${100 / 7}%`,
     maxWidth: `${100 / 7}%`,
-    aspectRatio: 0.82,
-    padding: 3,
+    aspectRatio: 0.72,
+    padding: 2,
   },
   monthCell: {
     flexBasis: '25%',
     maxWidth: '25%',
-    aspectRatio: 1.25,
+    aspectRatio: 1.2,
     padding: 4,
   },
   cellBox: {
@@ -385,7 +383,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 2,
+    gap: 3,
+    paddingVertical: 4,
   },
   weekday: {
     fontSize: 13,
@@ -395,15 +394,18 @@ const styles = StyleSheet.create({
   cellNumber: {
     fontSize: 16,
     fontWeight: '600',
+    lineHeight: 19,
   },
   cellLabel: {
     fontSize: 16,
     fontWeight: '700',
     textTransform: 'capitalize',
+    lineHeight: 19,
   },
   cellNet: {
     fontSize: 10,
     fontWeight: '700',
+    lineHeight: 13,
   },
   closeRow: {
     alignItems: 'center',

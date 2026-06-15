@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CategoryBars } from '@/components/category-bars';
 import { PeriodCalendar, type CalendarLevel } from '@/components/period-calendar';
+import { WeekBarChart } from '@/components/week-bar-chart';
 import { Colors } from '@/constants/theme';
 import { type Transaction } from '@/db/database';
 import {
@@ -27,8 +28,10 @@ import {
   formatShortDate,
   formatWeekRange,
   getWeekRange,
+  mondayIndex,
   monthName,
   toDateKey,
+  WEEKDAY_LABELS,
 } from '@/lib/format';
 
 type Mode = 'semana' | 'mensual' | 'anual';
@@ -152,6 +155,19 @@ export default function BalanceScreen() {
       .sort((a, b) => (a[0] < b[0] ? 1 : -1));
     return { selectedKey, selected, others };
   }, [mode, transactions, year, month, day]);
+
+  /** Ingresos y gastos de cada día (lunes-domingo) para el gráfico semanal. */
+  const weekBars = useMemo(() => {
+    const bars = WEEKDAY_LABELS.map((label) => ({ label, income: 0, expense: 0 }));
+    if (mode !== 'semana') return bars;
+    for (const t of transactions) {
+      const [y, m, d] = t.date.slice(0, 10).split('-').map(Number);
+      const idx = mondayIndex(new Date(y, m - 1, d));
+      if (t.type === 'ingreso') bars[idx].income += t.amount;
+      else if (t.type === 'gasto') bars[idx].expense += t.amount;
+    }
+    return bars;
+  }, [mode, transactions]);
 
   const periodLabel =
     mode === 'semana'
@@ -292,6 +308,14 @@ export default function BalanceScreen() {
             </Text>
           </View>
         </View>
+
+        {/* Gráfico semanal con ejes (ingresos arriba, gastos abajo) */}
+        {mode === 'semana' && (
+          <View style={[styles.listCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
+            <Text style={[styles.listTitle, { color: palette.text }]}>Ingresos y gastos por día</Text>
+            <WeekBarChart days={weekBars} />
+          </View>
+        )}
 
         {/* Desglose visual por categoría */}
         <CategoryBars title="Gastos por categoría" items={expenseByCategory} barColor={palette.danger} />

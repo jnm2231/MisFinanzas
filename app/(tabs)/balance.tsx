@@ -119,20 +119,23 @@ export default function BalanceScreen() {
     }
   };
 
-  const { incomes, expenses, totalIncome, totalExpense } = useMemo(() => {
+  const { incomes, expenses, transfers, totalIncome, totalExpense } = useMemo(() => {
     if (mode === 'anual') {
       return {
-        incomes: [],
-        expenses: [],
+        incomes: [] as LedgerEntry[],
+        expenses: [] as LedgerEntry[],
+        transfers: [] as LedgerEntry[],
         totalIncome: monthlyTotals.reduce((sum, m) => sum + m.income, 0),
         totalExpense: monthlyTotals.reduce((sum, m) => sum + m.expense, 0),
       };
     }
     const incomes = transactions.filter((t) => t.type === 'ingreso');
     const expenses = transactions.filter((t) => t.type === 'gasto');
+    const transfers = transactions.filter((t) => t.type === 'transferencia');
     return {
       incomes,
       expenses,
+      transfers,
       totalIncome: incomes.reduce((sum, t) => sum + t.amount, 0),
       totalExpense: expenses.reduce((sum, t) => sum + t.amount, 0),
     };
@@ -145,7 +148,6 @@ export default function BalanceScreen() {
     if (mode !== 'semana') return null;
     const byDay = new Map<string, LedgerEntry[]>();
     for (const t of transactions) {
-      if (t.type === 'transferencia') continue;
       const key = t.date.slice(0, 10);
       if (!byDay.has(key)) byDay.set(key, []);
       byDay.get(key)!.push(t);
@@ -179,9 +181,11 @@ export default function BalanceScreen() {
         : String(year);
 
   const confirmDelete = (tx: LedgerEntry) => {
+    const label =
+      tx.type === 'gasto' ? 'gasto' : tx.type === 'ingreso' ? 'ingreso' : 'transferencia';
     Alert.alert(
       'Eliminar movimiento',
-      `¿Eliminar este ${tx.type} de ${formatCurrency(tx.amount)}? El saldo de la cuenta se revertirá.`,
+      `¿Eliminar esta operación (${label}) de ${formatCurrency(tx.amount)}? El saldo de las cuentas se revertirá.`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -196,27 +200,55 @@ export default function BalanceScreen() {
     );
   };
 
-  const renderRow = (tx: LedgerEntry) => (
+  const renderRow = (tx: LedgerEntry) => {
+    if (tx.type === 'transferencia') return renderTransferRow(tx);
+    return (
+      <View key={tx.id} style={[styles.row, { borderBottomColor: palette.border }]}>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.rowCategory, { color: palette.text }]}>
+            {tx.category_name ?? 'Sin categoría'}
+          </Text>
+          <Text style={[styles.rowDate, { color: palette.muted }]}>
+            {mode === 'mensual' ? formatShortDate(tx.date) : tx.date.slice(11, 16)}
+          </Text>
+          <Text style={[styles.rowAccount, { color: palette.muted }]}>
+            {tx.account_name} · saldo {formatCurrency(tx.balance_after)}
+          </Text>
+        </View>
+        <Text
+          style={[
+            styles.rowAmount,
+            { color: tx.type === 'gasto' ? palette.danger : palette.success },
+          ]}>
+          {tx.type === 'gasto' ? '-' : '+'}
+          {formatCurrency(tx.amount)}
+        </Text>
+        <Pressable hitSlop={8} onPress={() => confirmDelete(tx)}>
+          <MaterialCommunityIcons name="trash-can-outline" size={20} color={palette.muted} />
+        </Pressable>
+      </View>
+    );
+  };
+
+  const renderTransferRow = (tx: LedgerEntry) => (
     <View key={tx.id} style={[styles.row, { borderBottomColor: palette.border }]}>
       <View style={{ flex: 1 }}>
-        <Text style={[styles.rowCategory, { color: palette.text }]}>
-          {tx.category_name ?? 'Sin categoría'}
-        </Text>
+        <View style={styles.transferTitleRow}>
+          <MaterialCommunityIcons name="swap-horizontal" size={16} color={palette.tint} />
+          <Text style={[styles.rowCategory, { color: palette.text }]}>Transferencia</Text>
+        </View>
         <Text style={[styles.rowDate, { color: palette.muted }]}>
           {mode === 'mensual' ? formatShortDate(tx.date) : tx.date.slice(11, 16)}
         </Text>
         <Text style={[styles.rowAccount, { color: palette.muted }]}>
-          {tx.account_name} · saldo {formatCurrency(tx.balance_after)}
+          {tx.account_name} → {tx.to_account_name}
+        </Text>
+        <Text style={[styles.rowAccount, { color: palette.muted }]}>
+          {tx.account_name}: {formatCurrency(tx.balance_after)} · {tx.to_account_name}:{' '}
+          {tx.to_balance_after !== null ? formatCurrency(tx.to_balance_after) : '—'}
         </Text>
       </View>
-      <Text
-        style={[
-          styles.rowAmount,
-          { color: tx.type === 'gasto' ? palette.danger : palette.success },
-        ]}>
-        {tx.type === 'gasto' ? '-' : '+'}
-        {formatCurrency(tx.amount)}
-      </Text>
+      <Text style={[styles.rowAmount, { color: palette.tint }]}>{formatCurrency(tx.amount)}</Text>
       <Pressable hitSlop={8} onPress={() => confirmDelete(tx)}>
         <MaterialCommunityIcons name="trash-can-outline" size={20} color={palette.muted} />
       </Pressable>
@@ -361,6 +393,13 @@ export default function BalanceScreen() {
                 expenses.map(renderRow)
               )}
             </View>
+
+            {transfers.length > 0 && (
+              <View style={[styles.listCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
+                <Text style={[styles.listTitle, { color: palette.tint }]}>Transferencias</Text>
+                {transfers.map(renderTransferRow)}
+              </View>
+            )}
           </>
         ) : (
           weekGroups && (
@@ -529,6 +568,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 2,
     fontStyle: 'italic',
+  },
+  transferTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   rowAmount: {
     fontSize: 15,

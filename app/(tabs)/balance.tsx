@@ -23,8 +23,8 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import {
   formatCurrency,
   formatDayHeading,
+  formatFullDate,
   formatMonthYear,
-  formatShortDate,
   formatWeekRange,
   getWeekRange,
   mondayIndex,
@@ -33,9 +33,10 @@ import {
   WEEKDAY_LABELS,
 } from '@/lib/format';
 
-type Mode = 'semana' | 'mensual' | 'anual';
+type Mode = 'dia' | 'semana' | 'mensual' | 'anual';
 
 const MODE_LABELS: { mode: Mode; label: string }[] = [
+  { mode: 'dia', label: 'Día' },
   { mode: 'semana', label: 'Semana' },
   { mode: 'mensual', label: 'Mensual' },
   { mode: 'anual', label: 'Anual' },
@@ -43,6 +44,7 @@ const MODE_LABELS: { mode: Mode; label: string }[] = [
 
 /** Nivel del calendario emergente según el modo del balance. */
 const MODE_TO_CALENDAR: Record<Mode, CalendarLevel> = {
+  dia: 'dia',
   semana: 'dia',
   mensual: 'mensual',
   anual: 'anual',
@@ -81,6 +83,13 @@ export default function BalanceScreen() {
       setMonthlyTotals([]);
       setExpenseByCategory(await getCategoryTotals(db, 'gasto', year, month));
       setIncomeByCategory(await getCategoryTotals(db, 'ingreso', year, month));
+    } else if (mode === 'dia') {
+      const startKey = toDateKey(new Date(year, month - 1, day));
+      const endKey = toDateKey(new Date(year, month - 1, day + 1));
+      setTransactions(await getLedgerForRange(db, startKey, endKey));
+      setMonthlyTotals([]);
+      setExpenseByCategory(await getCategoryTotalsForRange(db, 'gasto', startKey, endKey));
+      setIncomeByCategory(await getCategoryTotalsForRange(db, 'ingreso', startKey, endKey));
     } else {
       const w = getWeekRange(year, month, day);
       setTransactions(await getLedgerForRange(db, w.startKey, w.endExclusiveKey));
@@ -99,6 +108,12 @@ export default function BalanceScreen() {
   const movePeriod = (direction: -1 | 1) => {
     if (mode === 'anual') {
       setYear((y) => y + direction);
+    } else if (mode === 'dia') {
+      const date = new Date(year, month - 1, day);
+      date.setDate(date.getDate() + direction);
+      setYear(date.getFullYear());
+      setMonth(date.getMonth() + 1);
+      setDay(date.getDate());
     } else if (mode === 'mensual') {
       let newMonth = month + direction;
       let newYear = year;
@@ -120,46 +135,47 @@ export default function BalanceScreen() {
     }
   };
 
-  const { incomes, expenses, transfers, totalIncome, totalExpense } = useMemo(() => {
+  const { totalIncome, totalExpense } = useMemo(() => {
     if (mode === 'anual') {
       return {
-        incomes: [] as LedgerEntry[],
-        expenses: [] as LedgerEntry[],
-        transfers: [] as LedgerEntry[],
         totalIncome: monthlyTotals.reduce((sum, m) => sum + m.income, 0),
         totalExpense: monthlyTotals.reduce((sum, m) => sum + m.expense, 0),
       };
     }
-    const incomes = transactions.filter((t) => t.type === 'ingreso');
-    const expenses = transactions.filter((t) => t.type === 'gasto');
-    const transfers = transactions.filter((t) => t.type === 'transferencia');
     return {
-      incomes,
-      expenses,
-      transfers,
-      totalIncome: incomes.reduce((sum, t) => sum + t.amount, 0),
-      totalExpense: expenses.reduce((sum, t) => sum + t.amount, 0),
+      totalIncome: transactions
+        .filter((t) => t.type === 'ingreso')
+        .reduce((sum, t) => sum + t.amount, 0),
+      totalExpense: transactions
+        .filter((t) => t.type === 'gasto')
+        .reduce((sum, t) => sum + t.amount, 0),
     };
   }, [mode, transactions, monthlyTotals]);
 
   const balance = totalIncome - totalExpense;
 
-  /** Movimientos de la semana agrupados por día: el día elegido aparte y el resto debajo. */
-  const weekGroups = useMemo(() => {
-    if (mode !== 'semana') return null;
+  /**
+   * Movimientos agrupados por día (más reciente primero) con el neto del día.
+   * Se usa en los modos día, semana y mensual.
+   */
+  const dayGroups = useMemo(() => {
+    if (mode === 'anual') return [];
     const byDay = new Map<string, LedgerEntry[]>();
     for (const t of transactions) {
       const key = t.date.slice(0, 10);
       if (!byDay.has(key)) byDay.set(key, []);
       byDay.get(key)!.push(t);
     }
-    const selectedKey = toDateKey(new Date(year, month - 1, day));
-    const selected = byDay.get(selectedKey) ?? [];
-    const others = [...byDay.entries()]
-      .filter(([key]) => key !== selectedKey)
-      .sort((a, b) => (a[0] < b[0] ? 1 : -1));
-    return { selectedKey, selected, others };
-  }, [mode, transactions, year, month, day]);
+    return [...byDay.entries()]
+      .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+      .map(([key, txs]) => {
+        const net = txs.reduce(
+          (sum, t) => sum + (t.type === 'ingreso' ? t.amount : t.type === 'gasto' ? -t.amount : 0),
+          0
+        );
+        return { key, txs, net };
+      });
+  }, [mode, transactions]);
 
   /** Ingresos y gastos de cada día (lunes-domingo) para el gráfico semanal. */
   const weekBars = useMemo(() => {
@@ -175,11 +191,13 @@ export default function BalanceScreen() {
   }, [mode, transactions]);
 
   const periodLabel =
-    mode === 'semana'
-      ? formatWeekRange(week.monday, week.sunday)
-      : mode === 'mensual'
-        ? formatMonthYear(year, month)
-        : String(year);
+    mode === 'dia'
+      ? formatFullDate(year, month, day)
+      : mode === 'semana'
+        ? formatWeekRange(week.monday, week.sunday)
+        : mode === 'mensual'
+          ? formatMonthYear(year, month)
+          : String(year);
 
   const confirmDelete = (tx: LedgerEntry) => {
     const label =
@@ -220,9 +238,7 @@ export default function BalanceScreen() {
           <Text style={[styles.rowCategory, { color: palette.text }]}>
             {tx.category_name ?? 'Sin categoría'}
           </Text>
-          <Text style={[styles.rowDate, { color: palette.muted }]}>
-            {mode === 'mensual' ? formatShortDate(tx.date) : tx.date.slice(11, 16)}
-          </Text>
+          <Text style={[styles.rowDate, { color: palette.muted }]}>{tx.date.slice(11, 16)}</Text>
           <Text style={[styles.rowAccount, { color: palette.muted }]}>
             {tx.account_name} · saldo {formatCurrency(tx.balance_after)}
           </Text>
@@ -260,9 +276,7 @@ export default function BalanceScreen() {
           <MaterialCommunityIcons name="swap-horizontal" size={16} color={palette.tint} />
           <Text style={[styles.rowCategory, { color: palette.text }]}>Transferencia</Text>
         </View>
-        <Text style={[styles.rowDate, { color: palette.muted }]}>
-          {mode === 'mensual' ? formatShortDate(tx.date) : tx.date.slice(11, 16)}
-        </Text>
+        <Text style={[styles.rowDate, { color: palette.muted }]}>{tx.date.slice(11, 16)}</Text>
         <Text style={[styles.rowAccount, { color: palette.muted }]}>
           {tx.account_name} → {tx.to_account_name}
         </Text>
@@ -393,75 +407,33 @@ export default function BalanceScreen() {
               monthlyTotals.map(renderMonthRow)
             )}
           </View>
-        ) : mode === 'mensual' ? (
-          <>
-            <View style={[styles.listCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
-              <Text style={[styles.listTitle, { color: palette.success }]}>Ingresos</Text>
-              {incomes.length === 0 ? (
-                <Text style={[styles.emptyText, { color: palette.muted }]}>
-                  Sin ingresos en este periodo
-                </Text>
-              ) : (
-                incomes.map(renderRow)
-              )}
-            </View>
-
-            <View style={[styles.listCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
-              <Text style={[styles.listTitle, { color: palette.danger }]}>Gastos</Text>
-              {expenses.length === 0 ? (
-                <Text style={[styles.emptyText, { color: palette.muted }]}>
-                  Sin gastos en este periodo
-                </Text>
-              ) : (
-                expenses.map(renderRow)
-              )}
-            </View>
-
-            {transfers.length > 0 && (
-              <View style={[styles.listCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
-                <Text style={[styles.listTitle, { color: palette.tint }]}>Transferencias</Text>
-                {transfers.map(renderTransferRow)}
-              </View>
-            )}
-          </>
+        ) : dayGroups.length === 0 ? (
+          <View style={[styles.listCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
+            <Text style={[styles.emptyText, { color: palette.muted }]}>
+              Sin movimientos en este periodo
+            </Text>
+          </View>
         ) : (
-          weekGroups && (
-            <>
-              {/* Día seleccionado, en una sección diferenciada */}
-              <View style={[styles.listCard, { backgroundColor: palette.card, borderColor: palette.tint }]}>
-                <Text style={[styles.listTitle, { color: palette.tint }]}>Día seleccionado</Text>
-                <Text style={[styles.dayHeading, { color: palette.text }]}>
-                  {formatDayHeading(weekGroups.selectedKey)}
+          dayGroups.map((group) => (
+            <View
+              key={group.key}
+              style={[styles.dayCard, { backgroundColor: palette.card, borderColor: palette.tint }]}>
+              <View style={styles.dayCardHeader}>
+                <Text style={[styles.dayCardTitle, { color: palette.text }]}>
+                  {formatDayHeading(group.key)}
                 </Text>
-                {weekGroups.selected.length === 0 ? (
-                  <Text style={[styles.emptyText, { color: palette.muted }]}>
-                    Sin movimientos este día
-                  </Text>
-                ) : (
-                  weekGroups.selected.map(renderRow)
-                )}
+                <Text
+                  style={[
+                    styles.dayCardNet,
+                    { color: group.net >= 0 ? palette.success : palette.danger },
+                  ]}>
+                  {group.net >= 0 ? '+' : '−'}
+                  {formatCurrency(Math.abs(group.net))}
+                </Text>
               </View>
-
-              {/* Resto de la semana */}
-              <View style={[styles.listCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
-                <Text style={[styles.listTitle, { color: palette.text }]}>Resto de la semana</Text>
-                {weekGroups.others.length === 0 ? (
-                  <Text style={[styles.emptyText, { color: palette.muted }]}>
-                    Sin más movimientos esta semana
-                  </Text>
-                ) : (
-                  weekGroups.others.map(([key, txs]) => (
-                    <View key={key} style={styles.dayGroup}>
-                      <Text style={[styles.daySubheading, { color: palette.muted }]}>
-                        {formatDayHeading(key)}
-                      </Text>
-                      {txs.map(renderRow)}
-                    </View>
-                  ))
-                )}
-              </View>
-            </>
-          )
+              {group.txs.map(renderRow)}
+            </View>
+          ))
         )}
       </ScrollView>
 
@@ -556,21 +528,26 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginBottom: 4,
   },
-  dayHeading: {
-    fontSize: 14,
-    fontWeight: '600',
+  dayCard: {
+    borderWidth: 1.5,
+    borderRadius: 14,
+    padding: 14,
+    gap: 4,
+  },
+  dayCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  dayCardTitle: {
+    fontSize: 16,
+    fontWeight: '800',
     textTransform: 'capitalize',
-    marginBottom: 2,
   },
-  dayGroup: {
-    marginTop: 4,
-  },
-  daySubheading: {
-    fontSize: 13,
+  dayCardNet: {
+    fontSize: 15,
     fontWeight: '700',
-    textTransform: 'capitalize',
-    marginTop: 6,
-    marginBottom: 2,
   },
   row: {
     flexDirection: 'row',

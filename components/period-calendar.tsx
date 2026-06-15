@@ -20,7 +20,7 @@ type ViewMode = 'day' | 'month' | 'year';
 
 type Props = {
   visible: boolean;
-  /** Qué se está eligiendo: un día, un mes o un año. Determina dónde termina la selección. */
+  /** Qué se está eligiendo: un día, un mes o un año. Determina dónde acaba la selección. */
   level: CalendarLevel;
   initial: { year: number; month: number; day: number };
   onSelect: (selection: PeriodSelection) => void;
@@ -50,6 +50,11 @@ export function PeriodCalendar({ visible, level, initial, onSelect, onClose }: P
   const [displayMonth, setDisplayMonth] = useState(initial.month);
   const [nets, setNets] = useState<Map<number, number>>(new Map());
   const [yearList, setYearList] = useState<number[]>([]);
+
+  const todayDate = new Date();
+  const todayYear = todayDate.getFullYear();
+  const todayMonth = todayDate.getMonth() + 1;
+  const todayDay = todayDate.getDate();
 
   // Al abrir, vuelve al periodo actual y al nivel que corresponde.
   useEffect(() => {
@@ -126,6 +131,19 @@ export function PeriodCalendar({ visible, level, initial, onSelect, onClose }: P
     }
   };
 
+  const HeaderBtn = ({ direction }: { direction: -1 | 1 }) => (
+    <Pressable
+      hitSlop={8}
+      onPress={() => moveHeader(direction)}
+      style={[styles.navBtn, { backgroundColor: palette.card }]}>
+      <MaterialCommunityIcons
+        name={direction === -1 ? 'chevron-left' : 'chevron-right'}
+        size={26}
+        color={palette.text}
+      />
+    </Pressable>
+  );
+
   const renderDayGrid = () => {
     const daysInMonth = new Date(displayYear, displayMonth, 0).getDate();
     const firstWeekday = (new Date(displayYear, displayMonth - 1, 1).getDay() + 6) % 7;
@@ -143,23 +161,42 @@ export function PeriodCalendar({ visible, level, initial, onSelect, onClose }: P
           ))}
         </View>
         <View style={styles.grid}>
-          {cells.map((day, index) =>
-            day === null ? (
-              <View key={`blank-${index}`} style={styles.dayCell} />
-            ) : (
-              <Pressable
-                key={day}
-                style={[styles.dayCell, styles.cellBox, { borderColor: palette.border }]}
-                onPress={() => onSelect({ year: displayYear, month: displayMonth, day })}>
-                <Text style={[styles.cellNumber, { color: palette.text }]}>{day}</Text>
-                {nets.has(day) && (
-                  <Text style={[styles.cellNet, { color: netColor(nets.get(day)) }]}>
-                    {formatCompactNet(nets.get(day)!)}
+          {cells.map((day, index) => {
+            if (day === null) return <View key={`blank-${index}`} style={styles.dayCell} />;
+            const isSelected =
+              day === initial.day && displayMonth === initial.month && displayYear === initial.year;
+            const isToday =
+              day === todayDay && displayMonth === todayMonth && displayYear === todayYear;
+            return (
+              <View key={day} style={styles.dayCell}>
+                <Pressable
+                  style={[
+                    styles.cellBox,
+                    { backgroundColor: palette.card, borderColor: palette.border },
+                    isToday && { borderColor: palette.tint, borderWidth: 1.5 },
+                    isSelected && { backgroundColor: palette.tint, borderColor: palette.tint },
+                  ]}
+                  onPress={() => onSelect({ year: displayYear, month: displayMonth, day })}>
+                  <Text
+                    style={[
+                      styles.cellNumber,
+                      { color: isSelected ? palette.background : palette.text },
+                    ]}>
+                    {day}
                   </Text>
-                )}
-              </Pressable>
-            )
-          )}
+                  {nets.has(day) && (
+                    <Text
+                      style={[
+                        styles.cellNet,
+                        { color: isSelected ? palette.background : netColor(nets.get(day)) },
+                      ]}>
+                      {formatCompactNet(nets.get(day)!)}
+                    </Text>
+                  )}
+                </Pressable>
+              </View>
+            );
+          })}
         </View>
       </>
     );
@@ -167,37 +204,71 @@ export function PeriodCalendar({ visible, level, initial, onSelect, onClose }: P
 
   const renderMonthGrid = () => (
     <View style={styles.grid}>
-      {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
-        <Pressable
-          key={month}
-          style={[styles.monthCell, styles.cellBox, { borderColor: palette.border }]}
-          onPress={() => handleMonthPress(month)}>
-          <Text style={[styles.cellLabel, { color: palette.text }]}>{monthShortName(month)}</Text>
-          {nets.has(month) && (
-            <Text style={[styles.cellNet, { color: netColor(nets.get(month)) }]}>
-              {formatCompactNet(nets.get(month)!)}
-            </Text>
-          )}
-        </Pressable>
-      ))}
+      {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => {
+        const isSelected = month === initial.month && displayYear === initial.year;
+        const isCurrent = month === todayMonth && displayYear === todayYear;
+        return (
+          <View key={month} style={styles.monthCell}>
+            <Pressable
+              style={[
+                styles.cellBox,
+                { backgroundColor: palette.card, borderColor: palette.border },
+                isCurrent && { borderColor: palette.tint, borderWidth: 1.5 },
+                isSelected && { backgroundColor: palette.tint, borderColor: palette.tint },
+              ]}
+              onPress={() => handleMonthPress(month)}>
+              <Text
+                style={[styles.cellLabel, { color: isSelected ? palette.background : palette.text }]}>
+                {monthShortName(month)}
+              </Text>
+              {nets.has(month) && (
+                <Text
+                  style={[
+                    styles.cellNet,
+                    { color: isSelected ? palette.background : netColor(nets.get(month)) },
+                  ]}>
+                  {formatCompactNet(nets.get(month)!)}
+                </Text>
+              )}
+            </Pressable>
+          </View>
+        );
+      })}
     </View>
   );
 
   const renderYearGrid = () => (
     <View style={styles.grid}>
-      {yearList.map((year) => (
-        <Pressable
-          key={year}
-          style={[styles.monthCell, styles.cellBox, { borderColor: palette.border }]}
-          onPress={() => handleYearPress(year)}>
-          <Text style={[styles.cellLabel, { color: palette.text }]}>{year}</Text>
-          {nets.has(year) && (
-            <Text style={[styles.cellNet, { color: netColor(nets.get(year)) }]}>
-              {formatCompactNet(nets.get(year)!)}
-            </Text>
-          )}
-        </Pressable>
-      ))}
+      {yearList.map((year) => {
+        const isSelected = year === initial.year;
+        const isCurrent = year === todayYear;
+        return (
+          <View key={year} style={styles.monthCell}>
+            <Pressable
+              style={[
+                styles.cellBox,
+                { backgroundColor: palette.card, borderColor: palette.border },
+                isCurrent && { borderColor: palette.tint, borderWidth: 1.5 },
+                isSelected && { backgroundColor: palette.tint, borderColor: palette.tint },
+              ]}
+              onPress={() => handleYearPress(year)}>
+              <Text
+                style={[styles.cellLabel, { color: isSelected ? palette.background : palette.text }]}>
+                {year}
+              </Text>
+              {nets.has(year) && (
+                <Text
+                  style={[
+                    styles.cellNet,
+                    { color: isSelected ? palette.background : netColor(nets.get(year)) },
+                  ]}>
+                  {formatCompactNet(nets.get(year)!)}
+                </Text>
+              )}
+            </Pressable>
+          </View>
+        );
+      })}
     </View>
   );
 
@@ -208,40 +279,41 @@ export function PeriodCalendar({ visible, level, initial, onSelect, onClose }: P
         ? String(displayYear)
         : 'Selecciona un año';
 
+  const subtitle =
+    level === 'dia'
+      ? 'Elige un día'
+      : level === 'mensual'
+        ? 'Elige un mes'
+        : 'Elige un año';
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable
           style={[styles.sheet, { backgroundColor: palette.background, borderColor: palette.border }]}
           onPress={() => {}}>
+          <Text style={[styles.subtitle, { color: palette.muted }]}>{subtitle}</Text>
           <View style={styles.header}>
-            {viewMode !== 'year' ? (
-              <Pressable hitSlop={8} onPress={() => moveHeader(-1)}>
-                <MaterialCommunityIcons name="chevron-left" size={26} color={palette.text} />
-              </Pressable>
-            ) : (
-              <View style={{ width: 26 }} />
-            )}
-            <Pressable onPress={handleTitlePress} disabled={viewMode === 'year'}>
-              <Text style={[styles.headerTitle, { color: palette.text }]}>
-                {title}
-                {viewMode !== 'year' && (
-                  <Text style={{ color: palette.muted }}>  ▾</Text>
-                )}
-              </Text>
+            {viewMode !== 'year' ? <HeaderBtn direction={-1} /> : <View style={styles.navBtn} />}
+            <Pressable
+              onPress={handleTitlePress}
+              disabled={viewMode === 'year'}
+              style={styles.titleButton}>
+              <Text style={[styles.headerTitle, { color: palette.text }]}>{title}</Text>
+              {viewMode !== 'year' && (
+                <MaterialCommunityIcons name="chevron-down" size={18} color={palette.muted} />
+              )}
             </Pressable>
-            {viewMode !== 'year' ? (
-              <Pressable hitSlop={8} onPress={() => moveHeader(1)}>
-                <MaterialCommunityIcons name="chevron-right" size={26} color={palette.text} />
-              </Pressable>
-            ) : (
-              <View style={{ width: 26 }} />
-            )}
+            {viewMode !== 'year' ? <HeaderBtn direction={1} /> : <View style={styles.navBtn} />}
           </View>
 
           {viewMode === 'day' && renderDayGrid()}
           {viewMode === 'month' && renderMonthGrid()}
           {viewMode === 'year' && renderYearGrid()}
+
+          <Pressable style={styles.closeRow} onPress={onClose}>
+            <Text style={[styles.closeText, { color: palette.tint }]}>Cerrar</Text>
+          </Pressable>
         </Pressable>
       </Pressable>
     </Modal>
@@ -251,24 +323,44 @@ export function PeriodCalendar({ visible, level, initial, onSelect, onClose }: P
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.55)',
     justifyContent: 'center',
     padding: 16,
   },
   sheet: {
-    borderRadius: 14,
+    borderRadius: 20,
     borderWidth: 1,
-    padding: 14,
-    gap: 10,
+    padding: 18,
+    gap: 12,
+  },
+  subtitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  navBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  titleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+  },
   headerTitle: {
-    fontSize: 17,
-    fontWeight: '700',
+    fontSize: 20,
+    fontWeight: '800',
     textTransform: 'capitalize',
   },
   grid: {
@@ -278,38 +370,47 @@ const styles = StyleSheet.create({
   dayCell: {
     flexBasis: `${100 / 7}%`,
     maxWidth: `${100 / 7}%`,
-    aspectRatio: 0.95,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 1,
+    aspectRatio: 0.82,
+    padding: 3,
   },
   monthCell: {
     flexBasis: '25%',
     maxWidth: '25%',
-    aspectRatio: 1.4,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 2,
+    aspectRatio: 1.25,
+    padding: 4,
   },
   cellBox: {
+    flex: 1,
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 8,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
   },
   weekday: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
+    textAlign: 'center',
   },
   cellNumber: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '600',
   },
   cellLabel: {
-    fontSize: 15,
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: '700',
     textTransform: 'capitalize',
   },
   cellNet: {
     fontSize: 10,
-    fontWeight: '600',
+    fontWeight: '700',
+  },
+  closeRow: {
+    alignItems: 'center',
+    paddingTop: 4,
+  },
+  closeText: {
+    fontSize: 15,
+    fontWeight: '700',
   },
 });

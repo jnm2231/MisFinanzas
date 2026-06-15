@@ -5,9 +5,9 @@ import { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { BarChart } from '@/components/bar-chart';
 import { CategoryBars } from '@/components/category-bars';
 import { PeriodCalendar, type CalendarLevel } from '@/components/period-calendar';
-import { WeekBarChart } from '@/components/week-bar-chart';
 import { Colors } from '@/constants/theme';
 import {
   deleteTransaction,
@@ -29,6 +29,7 @@ import {
   getWeekRange,
   mondayIndex,
   monthName,
+  monthShortName,
   toDateKey,
   WEEKDAY_LABELS,
 } from '@/lib/format';
@@ -177,18 +178,51 @@ export default function BalanceScreen() {
       });
   }, [mode, transactions]);
 
-  /** Ingresos y gastos de cada día (lunes-domingo) para el gráfico semanal. */
-  const weekBars = useMemo(() => {
-    const bars = WEEKDAY_LABELS.map((label) => ({ label, income: 0, expense: 0 }));
-    if (mode !== 'semana') return bars;
-    for (const t of transactions) {
-      const [y, m, d] = t.date.slice(0, 10).split('-').map(Number);
-      const idx = mondayIndex(new Date(y, m - 1, d));
-      if (t.type === 'ingreso') bars[idx].income += t.amount;
-      else if (t.type === 'gasto') bars[idx].expense += t.amount;
+  /**
+   * Datos del gráfico de barras según el modo:
+   *  - semana: una barra por día de la semana (lunes-domingo).
+   *  - mensual: una barra por día del mes.
+   *  - anual: una barra por mes del año.
+   */
+  const bars = useMemo(() => {
+    if (mode === 'semana') {
+      const arr = WEEKDAY_LABELS.map((label) => ({ label, income: 0, expense: 0 }));
+      for (const t of transactions) {
+        const [y, m, d] = t.date.slice(0, 10).split('-').map(Number);
+        const idx = mondayIndex(new Date(y, m - 1, d));
+        if (t.type === 'ingreso') arr[idx].income += t.amount;
+        else if (t.type === 'gasto') arr[idx].expense += t.amount;
+      }
+      return arr;
     }
-    return bars;
-  }, [mode, transactions]);
+    if (mode === 'mensual') {
+      const daysInMonth = new Date(year, month, 0).getDate();
+      const arr = Array.from({ length: daysInMonth }, (_, i) => ({
+        label: String(i + 1),
+        income: 0,
+        expense: 0,
+      }));
+      for (const t of transactions) {
+        const d = Number(t.date.slice(8, 10));
+        if (t.type === 'ingreso') arr[d - 1].income += t.amount;
+        else if (t.type === 'gasto') arr[d - 1].expense += t.amount;
+      }
+      return arr;
+    }
+    if (mode === 'anual') {
+      const arr = Array.from({ length: 12 }, (_, i) => ({
+        label: monthShortName(i + 1),
+        income: 0,
+        expense: 0,
+      }));
+      for (const mt of monthlyTotals) {
+        arr[mt.month - 1].income = mt.income;
+        arr[mt.month - 1].expense = mt.expense;
+      }
+      return arr;
+    }
+    return [];
+  }, [mode, transactions, monthlyTotals, year, month]);
 
   const periodLabel =
     mode === 'dia'
@@ -383,11 +417,18 @@ export default function BalanceScreen() {
           </View>
         </View>
 
-        {/* Gráfico semanal con ejes (ingresos arriba, gastos abajo) */}
-        {mode === 'semana' && (
+        {/* Gráfico de barras con ejes (ingresos arriba, gastos abajo) */}
+        {mode !== 'dia' && (
           <View style={[styles.listCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
-            <Text style={[styles.listTitle, { color: palette.text }]}>Ingresos y gastos por día</Text>
-            <WeekBarChart days={weekBars} />
+            <Text style={[styles.listTitle, { color: palette.text }]}>
+              {mode === 'anual' ? 'Ingresos y gastos por mes' : 'Ingresos y gastos por día'}
+            </Text>
+            <BarChart
+              bars={bars}
+              emptyText={
+                mode === 'anual' ? 'Sin movimientos este año.' : 'Sin movimientos en este periodo.'
+              }
+            />
           </View>
         )}
 

@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import Constants from 'expo-constants';
 import * as DocumentPicker from 'expo-document-picker';
 import { File, Paths } from 'expo-file-system';
@@ -34,6 +35,7 @@ import {
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { exportAll, importAll, parseBackup, toCSV, toJSON } from '@/lib/backup';
 import { formatCurrency, nowLocalISO } from '@/lib/format';
+import { loadBacklogNotes, saveBacklogNotes } from '@/lib/notes';
 
 export default function AjustesScreen() {
   const db = useSQLiteContext();
@@ -47,12 +49,17 @@ export default function AjustesScreen() {
   const [newExpenseCategory, setNewExpenseCategory] = useState('');
   const [newIncomeCategory, setNewIncomeCategory] = useState('');
   const [patchNotesVisible, setPatchNotesVisible] = useState(false);
+  const [backlogNotes, setBacklogNotes] = useState('');
+  const [savedNotes, setSavedNotes] = useState('');
 
   const load = useCallback(async () => {
     setAccounts(await getAccounts(db));
     setBaseId(await getBaseAccountId(db));
     setExpenseCategories(await getCategories(db, 'gasto'));
     setIncomeCategories(await getCategories(db, 'ingreso'));
+    const notes = await loadBacklogNotes();
+    setBacklogNotes(notes);
+    setSavedNotes(notes);
   }, [db]);
 
   useFocusEffect(
@@ -183,6 +190,20 @@ export default function AjustesScreen() {
     );
   };
 
+  const handleSaveNotes = async () => {
+    try {
+      await saveBacklogNotes(backlogNotes);
+      setSavedNotes(backlogNotes);
+    } catch (error) {
+      Alert.alert('Error al guardar', error instanceof Error ? error.message : 'No se han podido guardar las notas.');
+    }
+  };
+
+  const handleCopyNotes = async () => {
+    await Clipboard.setStringAsync(backlogNotes);
+    Alert.alert('Copiado', 'Las notas se han copiado al portapapeles.');
+  };
+
   const renderCategoryManager = (
     title: string,
     categories: Category[],
@@ -310,6 +331,54 @@ export default function AjustesScreen() {
               Importar backup (CSV o JSON)
             </Text>
           </Pressable>
+        </View>
+
+        {/* Notas de backlog */}
+        <View style={[styles.card, { backgroundColor: palette.card, borderColor: palette.border }]}>
+          <Text style={[styles.cardTitle, { color: palette.text }]}>Notas de backlog</Text>
+          <Text style={[styles.cardSubtitle, { color: palette.muted }]}>
+            Anota aquí ideas de nuevas funcionalidades. Se guardan en el dispositivo y no se
+            incluyen en las copias de seguridad.
+          </Text>
+          <TextInput
+            style={[
+              styles.notesInput,
+              { borderColor: palette.border, color: palette.text, backgroundColor: palette.background },
+            ]}
+            placeholder="Escribe aquí tus ideas..."
+            placeholderTextColor={palette.muted}
+            value={backlogNotes}
+            onChangeText={setBacklogNotes}
+            multiline
+            textAlignVertical="top"
+          />
+          <View style={styles.backupRow}>
+            <Pressable
+              style={[
+                styles.backupButton,
+                { borderColor: backlogNotes === savedNotes ? palette.border : palette.tint },
+              ]}
+              onPress={handleSaveNotes}>
+              <MaterialCommunityIcons
+                name="content-save-outline"
+                size={18}
+                color={backlogNotes === savedNotes ? palette.muted : palette.tint}
+              />
+              <Text
+                style={[
+                  styles.backupText,
+                  { color: backlogNotes === savedNotes ? palette.muted : palette.tint },
+                ]}>
+                {backlogNotes === savedNotes ? 'Guardado' : 'Guardar'}
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[styles.backupButton, { borderColor: palette.tint }]}
+              onPress={handleCopyNotes}>
+              <MaterialCommunityIcons name="content-copy" size={18} color={palette.tint} />
+              <Text style={[styles.backupText, { color: palette.tint }]}>Copiar</Text>
+            </Pressable>
+          </View>
         </View>
 
         {/* Zona peligrosa */}
@@ -458,6 +527,14 @@ const styles = StyleSheet.create({
   addButton: {
     borderRadius: 10,
     padding: 10,
+  },
+  notesInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    minHeight: 110,
   },
   backupRow: {
     flexDirection: 'row',

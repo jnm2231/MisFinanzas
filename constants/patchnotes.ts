@@ -25,6 +25,7 @@ export const PATCH_NOTES: PatchNote[] = [
       'El historial de Balance muestra también las transferencias entre cuentas, indicando la cuenta de origen, la de destino y el saldo final de cada una.',
       'La evolución del patrimonio permite elegir el periodo representado: última semana, último mes, últimos 6 meses, último año, últimos 2 años y últimos 5 años. El eje vertical parte siempre de 0 € y se ajusta automáticamente para que el gráfico no crezca de tamaño. Si todavía no hay datos para cubrir el periodo, se muestra el histórico disponible.',
       'Se añade en Ajustes una sección de notas de backlog para anotar ideas de nuevas funcionalidades, con guardado persistente y copia al portapapeles. Estas notas no se incluyen en las copias de seguridad.',
+      'Se establece el icono de la aplicación y la imagen de la pantalla de inicio (splash) con los recursos personalizados de la aplicación.',
     ],
   },
 ];

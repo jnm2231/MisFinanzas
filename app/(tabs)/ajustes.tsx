@@ -34,6 +34,7 @@ import {
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { exportAll, importAll, parseBackup, toCSV, toJSON } from '@/lib/backup';
 import { formatCurrency, nowLocalISO } from '@/lib/format';
+import { seedMockData } from '@/lib/mock-data';
 import { loadBacklogNotes, saveBacklogNotes } from '@/lib/notes';
 
 export default function AjustesScreen() {
@@ -163,6 +164,29 @@ export default function AjustesScreen() {
                 'Error al importar',
                 error instanceof Error ? error.message : 'No se han podido importar los datos.'
               );
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleSeedMock = () => {
+    Alert.alert(
+      'Cargar datos de prueba',
+      'Se REEMPLAZARÁN todos los datos actuales por un conjunto de ejemplo (cuentas, gastos, ingresos, transferencias e histórico de patrimonio) para probar la app. Solo disponible en desarrollo.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Cargar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await seedMockData(db);
+              await load();
+              Alert.alert('Datos de prueba cargados', 'Se ha generado un conjunto de datos de ejemplo.');
+            } catch (error) {
+              Alert.alert('Error', error instanceof Error ? error.message : 'No se han podido generar los datos.');
             }
           },
         },
@@ -378,6 +402,23 @@ export default function AjustesScreen() {
             </Pressable>
           </View>
         </View>
+
+        {/* Datos de prueba (solo en desarrollo / Expo Go) */}
+        {__DEV__ && (
+          <View style={[styles.card, { backgroundColor: palette.card, borderColor: palette.tint }]}>
+            <Text style={[styles.cardTitle, { color: palette.tint }]}>Datos de prueba (desarrollo)</Text>
+            <Text style={[styles.cardSubtitle, { color: palette.muted }]}>
+              Genera un conjunto de ejemplo con movimientos de varios meses e histórico de
+              patrimonio para probar las funcionalidades. Solo visible en Expo Go.
+            </Text>
+            <Pressable
+              style={[styles.backupButton, { borderColor: palette.tint }]}
+              onPress={handleSeedMock}>
+              <MaterialCommunityIcons name="database-plus-outline" size={18} color={palette.tint} />
+              <Text style={[styles.backupText, { color: palette.tint }]}>Cargar datos de prueba</Text>
+            </Pressable>
+          </View>
+        )}
 
         {/* Zona peligrosa */}
         <View style={[styles.card, { borderColor: palette.danger, backgroundColor: palette.card }]}>
